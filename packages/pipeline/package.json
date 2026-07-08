@@ -10,11 +10,15 @@
     }
   },
   "scripts": {
+    "cli": "tsx src/cli.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --pretty false",
     "test": "vitest run"
   },
   "dependencies": {
     "@isochrone/gtfs-types": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
   }
 }

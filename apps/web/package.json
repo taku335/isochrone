@@ -10,8 +10,12 @@
     }
   },
   "scripts": {
+    "dev": "vite --host 0.0.0.0",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --pretty false",
     "test": "vitest run"
+  },
+  "devDependencies": {
+    "vite": "^7.3.6"
   }
 }
