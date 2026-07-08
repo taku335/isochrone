@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/gtfs-types" },
+    { "path": "packages/pipeline" },
+    { "path": "packages/raptor" },
+    { "path": "apps/web" }
+  ]
+}
