@@ -15,6 +15,15 @@ export interface AgencyConfig {
   readonly packageId: string;
   readonly resourceSelector: ResourceSelectorConfig;
   readonly idPrefix: string;
+  readonly footpaths?: FootpathConfig;
+}
+
+export interface FootpathConfig {
+  readonly radiusMeters: number;
+  readonly sameNameRadiusMeters: number;
+  readonly walkMetersPerMinute: number;
+  readonly bufferMinutes: number;
+  readonly gridCellMeters: number;
 }
 
 export interface AgenciesConfig {
@@ -69,8 +78,17 @@ function parseAgencyConfig(value: unknown): AgencyConfig {
   const packageId = readString(value, 'packageId');
   const idPrefix = readString(value, 'idPrefix');
   const resourceSelector = parseResourceSelector(value.resourceSelector);
+  const footpaths = value.footpaths === undefined ? undefined : parseFootpathConfig(value.footpaths);
 
-  return { id, displayName, ckanEndpoint, packageId, resourceSelector, idPrefix };
+  return {
+    id,
+    displayName,
+    ckanEndpoint,
+    packageId,
+    resourceSelector,
+    idPrefix,
+    ...(footpaths === undefined ? {} : { footpaths }),
+  };
 }
 
 function parseResourceSelector(value: unknown): ResourceSelectorConfig {
@@ -106,6 +124,28 @@ function readString(record: Readonly<Record<string, unknown>>, key: string): str
   const value = record[key];
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`Invalid agencies config: expected non-empty string at ${key}.`);
+  }
+  return value;
+}
+
+function parseFootpathConfig(value: unknown): FootpathConfig {
+  if (!isRecord(value)) {
+    throw new Error('Invalid footpath config.');
+  }
+
+  return {
+    radiusMeters: readNumber(value, 'radiusMeters'),
+    sameNameRadiusMeters: readNumber(value, 'sameNameRadiusMeters'),
+    walkMetersPerMinute: readNumber(value, 'walkMetersPerMinute'),
+    bufferMinutes: readNumber(value, 'bufferMinutes'),
+    gridCellMeters: readNumber(value, 'gridCellMeters'),
+  };
+}
+
+function readNumber(record: Readonly<Record<string, unknown>>, key: string): number {
+  const value = record[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Invalid agencies config: expected finite number at ${key}.`);
   }
   return value;
 }

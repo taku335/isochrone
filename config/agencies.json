@@ -10,7 +10,14 @@
         "nameIncludes": ["市バスGTFS-JPデータ"],
         "preferLatest": true
       },
-      "idPrefix": "nagoya-cbus"
+      "idPrefix": "nagoya-cbus",
+      "footpaths": {
+        "radiusMeters": 300,
+        "sameNameRadiusMeters": 500,
+        "walkMetersPerMinute": 80,
+        "bufferMinutes": 1,
+        "gridCellMeters": 300
+      }
     }
   ]
 }
