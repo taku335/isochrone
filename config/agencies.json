@@ -1,0 +1,16 @@
+{
+  "agencies": [
+    {
+      "id": "nagoya-cbus",
+      "displayName": "名古屋市交通局 市バス",
+      "ckanEndpoint": "https://data.bodik.jp/api/3/action/package_show",
+      "packageId": "231002_7109030000_bus-gtfs-jp",
+      "resourceSelector": {
+        "format": "ZIP",
+        "nameIncludes": ["市バスGTFS-JPデータ"],
+        "preferLatest": true
+      },
+      "idPrefix": "nagoya-cbus"
+    }
+  ]
+}
