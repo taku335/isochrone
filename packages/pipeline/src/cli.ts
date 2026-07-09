@@ -3,12 +3,14 @@ import { pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 import { findAgency, findAgenciesConfigPath, loadAgenciesConfig } from './agencies.js';
-import { downloadGtfsZip } from './downloader.js';
+import { downloadGtfsZip, readDownloadManifest } from './downloader.js';
+import { getGtfsStats, parseGtfsZipFile } from './gtfs-parser.js';
 
 export const PIPELINE_HELP = `Usage: docker compose run --rm pipeline <command> [options]
 
 Commands:
   download <agency-id>    Download and cache a GTFS-JP zip
+  inspect <agency-id>     Parse the cached GTFS-JP zip and print counts
 
 Options:
   --cache-dir <path>      Cache directory (default: .cache/gtfs)
@@ -17,6 +19,7 @@ Options:
 
 Examples:
   pipeline download nagoya-cbus
+  pipeline inspect nagoya-cbus
   docker compose run --rm pipeline download nagoya-cbus`;
 
 export async function runPipelineCli(
@@ -35,7 +38,7 @@ export async function runPipelineCli(
 
   try {
     if (command === 'download') {
-      const options = parseDownloadArgs(rest);
+      const options = parseAgencyCommandArgs(rest, 'download');
       const configPath = options.configPath ?? findAgenciesConfigPath();
       const config = await loadAgenciesConfig(configPath);
       const agency = findAgency(config, options.agencyId);
@@ -43,6 +46,27 @@ export async function runPipelineCli(
       const result = await downloadGtfsZip({ agency, cacheDir });
       write(`${result.status}: ${result.manifest.zipPath}`);
       write(`last_modified: ${result.manifest.lastModified}`);
+      return 0;
+    }
+
+    if (command === 'inspect') {
+      const options = parseAgencyCommandArgs(rest, 'inspect');
+      const configPath = options.configPath ?? findAgenciesConfigPath();
+      const config = await loadAgenciesConfig(configPath);
+      const agency = findAgency(config, options.agencyId);
+      const cacheDir = resolve(options.cacheDir ?? resolve(dirname(configPath), '..', '.cache', 'gtfs'));
+      const manifest = await readDownloadManifest(resolve(cacheDir, agency.id, 'manifest.json'));
+      if (manifest === null) {
+        throw new Error(`No cached GTFS manifest found for ${agency.id}. Run download first.`);
+      }
+
+      const stats = getGtfsStats(
+        await parseGtfsZipFile(manifest.zipPath, {
+          agencyId: agency.id,
+          idPrefix: agency.idPrefix,
+        }),
+      );
+      write(JSON.stringify(stats, null, 2));
       return 0;
     }
 
@@ -59,16 +83,16 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   process.exitCode = await runPipelineCli();
 }
 
-interface DownloadCliOptions {
+interface AgencyCommandCliOptions {
   readonly agencyId: string;
   readonly cacheDir?: string;
   readonly configPath?: string;
 }
 
-function parseDownloadArgs(args: readonly string[]): DownloadCliOptions {
+function parseAgencyCommandArgs(args: readonly string[], command: string): AgencyCommandCliOptions {
   const [agencyId, ...rest] = args;
   if (agencyId === undefined || agencyId.startsWith('-')) {
-    throw new Error('Usage error: download requires an agency id.');
+    throw new Error(`Usage error: ${command} requires an agency id.`);
   }
 
   let cacheDir: string | undefined;
@@ -85,7 +109,7 @@ function parseDownloadArgs(args: readonly string[]): DownloadCliOptions {
       configPath = value;
       index += 1;
     } else {
-      throw new Error(`Unknown download option: ${arg ?? ''}`);
+      throw new Error(`Unknown ${command} option: ${arg ?? ''}`);
     }
   }
 

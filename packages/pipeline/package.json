@@ -16,7 +16,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@isochrone/gtfs-types": "workspace:*"
+    "@isochrone/gtfs-types": "workspace:*",
+    "fflate": "^0.8.3"
   },
   "devDependencies": {
     "tsx": "^4.20.6"
