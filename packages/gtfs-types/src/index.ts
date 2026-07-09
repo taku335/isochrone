@@ -74,3 +74,16 @@ export interface NormalizedCalendarDate {
   readonly date: string;
   readonly exceptionType: 1 | 2;
 }
+
+export interface FootpathCsr {
+  readonly stopIds: readonly PrefixedId[];
+  readonly offsets: readonly number[];
+  readonly targetStopIds: readonly PrefixedId[];
+  readonly durations: readonly number[];
+  readonly sameNameGroups: readonly StopNameGroup[];
+}
+
+export interface StopNameGroup {
+  readonly name: string;
+  readonly stopIds: readonly PrefixedId[];
+}
