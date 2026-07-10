@@ -27,4 +27,11 @@ blockedBy: 6, 7
 
 実フィードでの生成 + サイズ実測。CI にサイズゲートジョブを追加。
 
+## 実装メモ
+
+- `pipeline dataset <agency-id>` が cached GTFS から `manifest.json`、`stops-<contenthash>.json`、`timetable-<contenthash>.json` を生成する。
+- contenthash は JSON bytes の SHA-256 先頭 16 桁をファイル名に使い、manifest には full SHA-256 と gzip サイズを記録する。
+- サイズゲートは manifest/stops/timetable の gzip 合計を対象にする。既定値は 1,500,000 bytes。
+- サイズ超過時の fallback は PLAN どおり times 配列の `.bin.gz` バイナリ化と `DecompressionStream` 利用を候補に留め、現時点では実装しない。
+
 参照: [docs/PLAN.md](https://github.com/taku335/isochrone/blob/main/docs/PLAN.md) §4 データフォーマット設計
