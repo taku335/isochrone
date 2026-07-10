@@ -74,3 +74,17 @@ export interface NormalizedCalendarDate {
   readonly date: string;
   readonly exceptionType: 1 | 2;
 }
+
+export interface CompactTimetable {
+  readonly patternStopOffsets: readonly number[];
+  readonly patternStopIds: readonly PrefixedId[];
+  readonly patternTripOffsets: readonly number[];
+  readonly tripIds: readonly PrefixedId[];
+  readonly tripServiceIds: readonly PrefixedId[];
+  readonly tripTimeOffsets: readonly number[];
+  readonly tripTimeDeltas: readonly number[];
+  readonly stopPatternOffsets: readonly number[];
+  readonly stopPatternStopIds: readonly PrefixedId[];
+  readonly stopPatternIndices: readonly number[];
+  readonly warnings: readonly string[];
+}
