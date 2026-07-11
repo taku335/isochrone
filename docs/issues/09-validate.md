@@ -26,4 +26,10 @@ blockedBy: 8
 
 Vitest + CI 実行ログ。
 
+## 実装メモ
+
+- `pipeline validate <agency-id>` が cached GTFS からブラウザ用 dataset を生成し、manifest/stops/timetable の参照整合性、trip 時刻単調性、統計レンジを検査する。
+- 検査結果は `ok`、`stats`、`issues` を JSON で出力する。issue がある場合は stderr にも `code: path: message` を出して非ゼロ終了する。
+- 改正で変動する実フィードは緩いレンジ検査に留め、厳密な golden stats は固定 fixture の単体テストで扱う。
+
 参照: [docs/PLAN.md](https://github.com/taku335/isochrone/blob/main/docs/PLAN.md) §8 リスクと対応

@@ -3,11 +3,12 @@ import { pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 import { type AgencyConfig, findAgency, findAgenciesConfigPath, loadAgenciesConfig } from './agencies.js';
-import { writeBrowserDataset } from './dataset.js';
+import { buildBrowserDatasetFiles, writeBrowserDataset } from './dataset.js';
 import { downloadGtfsZip, readDownloadManifest } from './downloader.js';
 import { buildFootpaths, DEFAULT_FOOTPATH_CONFIG, getFootpathStats } from './footpaths.js';
 import { getGtfsStats, parseGtfsZipFile } from './gtfs-parser.js';
 import { buildCompactTimetable, getCompactTimetableStats } from './patterns.js';
+import { validateBrowserDataset } from './validation.js';
 
 export const PIPELINE_HELP = `Usage: docker compose run --rm pipeline <command> [options]
 
@@ -17,6 +18,7 @@ Commands:
   compact <agency-id>     Build compact timetable stats from the cached zip
   footpaths <agency-id>   Generate footpath CSR stats from the cached zip
   dataset <agency-id>     Write browser dataset files and enforce the size gate
+  validate <agency-id>    Validate generated browser dataset quality
 
 Options:
   --cache-dir <path>      Cache directory (default: .cache/gtfs)
@@ -31,6 +33,7 @@ Examples:
   pipeline compact nagoya-cbus
   pipeline footpaths nagoya-cbus
   pipeline dataset nagoya-cbus
+  pipeline validate nagoya-cbus
   docker compose run --rm pipeline download nagoya-cbus`;
 
 export async function runPipelineCli(
@@ -117,6 +120,22 @@ export async function runPipelineCli(
         },
       }, null, 2));
       return 0;
+    }
+
+    if (command === 'validate') {
+      const options = parseAgencyCommandArgs(rest, 'validate');
+      const { agency, manifest } = await loadCachedAgencyManifest(options);
+      const gtfs = await parseGtfsZipFile(manifest.zipPath, toParseOptions(agency));
+      const files = buildBrowserDatasetFiles(gtfs, {
+        feedVersion: manifest.lastModified,
+        footpathConfig: agency.footpaths ?? DEFAULT_FOOTPATH_CONFIG,
+      });
+      const result = validateBrowserDataset(files);
+      write(JSON.stringify(result, null, 2));
+      for (const issue of result.issues) {
+        writeError(`${issue.code}: ${issue.path}: ${issue.message}`);
+      }
+      return result.ok ? 0 : 1;
     }
 
     writeError(`Unknown pipeline command: ${command ?? ''}`);

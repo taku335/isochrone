@@ -68,3 +68,31 @@ jobs:
 
       - name: Build browser dataset
         run: pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus
+
+  data-validate:
+    name: Browser dataset validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download GTFS feed
+        run: pnpm --filter @isochrone/pipeline cli download nagoya-cbus
+
+      - name: Validate browser dataset
+        run: pnpm --filter @isochrone/pipeline cli validate nagoya-cbus
