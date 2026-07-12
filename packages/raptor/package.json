@@ -16,10 +16,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@isochrone/gtfs-types": "workspace:*"
+    "@isochrone/gtfs-types": "workspace:*",
+    "@turf/union": "^7.3.5"
   },
   "devDependencies": {
     "@isochrone/pipeline": "workspace:*",
+    "@types/geojson": "^7946.0.16",
     "tsx": "^4.20.6"
   }
 }

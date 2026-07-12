@@ -52,6 +52,8 @@ describe('RAPTOR worker protocol', () => {
       { date: '20260707', minuteOffset: 0, dayType: 'custom' },
       { date: '20260706', minuteOffset: 1440, dayType: 'custom' },
     ]);
+    expect(asyncResult.polygons.layers).toHaveLength(2);
+    expect(asyncResult.polygons.generationMs).toBeGreaterThanOrEqual(0);
     expect(progress).toEqual(['loading', 'routing']);
     const transferred = ports.transfers.filter((transfer) => transfer.length > 0);
     expect(transferred).toHaveLength(1);

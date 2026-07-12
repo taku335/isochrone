@@ -232,7 +232,7 @@ runSearchButton.addEventListener('click', () => {
       const source = map.getSource<GeoJSONSource>('reachable-stops');
       source?.setData(collection);
       routeStatus.dataset.state = 'success';
-      routeStatus.textContent = `到達 ${String(countReachableStops(result.arrival))}停留所（60分以内 ${String(collection.features.length)}地点）`;
+      routeStatus.textContent = `到達 ${String(countReachableStops(result.arrival))}停留所（60分以内 ${String(collection.features.length)}地点）/ ポリゴン ${String(Math.round(result.polygons.generationMs))}ms`;
       serviceDay.textContent = `適用ダイヤ: ${formatServiceLayers(result.serviceLayers, selection.isLateNight)}`;
       serviceDay.hidden = false;
       legend.hidden = false;

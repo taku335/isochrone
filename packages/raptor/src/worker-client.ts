@@ -1,5 +1,6 @@
 import { type EarliestArrivalQuery, type OneToAllResult } from './core.js';
 import { type LoadedTimetableStats } from './index.js';
+import { type ReachabilityPolygonsResult } from './reachability.js';
 import {
   type ProgressResponse,
   type RaptorWorkerClientPort,
@@ -19,6 +20,7 @@ interface PendingRequest {
 
 export interface RaptorWorkerRouteResult extends OneToAllResult {
   readonly serviceLayers: readonly WorkerServiceLayer[];
+  readonly polygons: ReachabilityPolygonsResult;
 }
 
 export class SupersededQueryError extends Error {
@@ -137,6 +139,7 @@ export class RaptorWorkerClient {
         arrival: new Uint16Array(response.arrival),
         rounds: response.rounds,
         serviceLayers: response.serviceLayers,
+        polygons: response.polygons,
       });
       return;
     }
