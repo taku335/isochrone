@@ -15,8 +15,14 @@ import {
 import { buildStopGroups, type StopGroup } from './stop-search.js';
 import { initializeStopSearchUi } from './stop-search-ui.js';
 import { createRaptorWorkerClient } from './raptor-client.js';
+import {
+  clearReachabilityLayers,
+  initializeReachabilityLayers,
+  REACHABILITY_COLORS,
+  updateReachabilityLayers,
+} from './reachability-map.js';
 import { type BrowserStopsDataset } from '@isochrone/gtfs-types';
-import { GeoJSONSource, Marker } from 'maplibre-gl';
+import { Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
 
@@ -84,8 +90,9 @@ app.innerHTML = `
           <p class="route-status" role="status">出発停留所を選択してください</p>
           <p class="service-day" hidden></p>
           <div class="reachability-legend" hidden aria-label="到達時間の凡例">
-            <span><i data-band="30"></i>30分以内</span>
-            <span><i data-band="60"></i>60分以内</span>
+            <span><i data-layer="30"></i>30分圏</span>
+            <span><i data-layer="60"></i>60分圏</span>
+            <span><i data-layer="origin"></i>出発地</span>
           </div>
         </div>
       </section>
@@ -131,11 +138,10 @@ dateInput.value = defaults.date;
 timeInput.value = defaults.time;
 
 const pageUrl = new URL(window.location.href);
-if (!pageUrl.searchParams.has('debug')) {
-  pageUrl.searchParams.set('debug', 'stops');
-  window.history.replaceState(null, '', pageUrl);
-}
 const showReachableStopDots = pageUrl.searchParams.get('debug') === 'stops';
+document.documentElement.style.setProperty('--reachability-30', REACHABILITY_COLORS[30]);
+document.documentElement.style.setProperty('--reachability-60', REACHABILITY_COLORS[60]);
+document.documentElement.style.setProperty('--origin-color', REACHABILITY_COLORS.origin);
 
 const manifestUrl = resolveDatasetManifestUrl();
 const absoluteManifestUrl = new URL(manifestUrl, window.location.href).href;
@@ -154,6 +160,9 @@ const selectStopGroup = (group: StopGroup): void => {
     .setLngLat([group.center[0], group.center[1]])
     .addTo(map);
   map.easeTo({ center: [group.center[0], group.center[1]], zoom: 14.5, duration: 700 });
+  clearReachabilityLayers(map);
+  legend.hidden = true;
+  serviceDay.hidden = true;
   routeStatus.textContent = '日時を確認して探索してください';
   updateRunAvailability();
 };
@@ -217,6 +226,8 @@ runSearchButton.addEventListener('click', () => {
   routeRunning = true;
   routeStatus.dataset.state = 'loading';
   routeStatus.textContent = '探索しています';
+  clearReachabilityLayers(map);
+  legend.hidden = true;
   serviceDay.hidden = true;
   updateRunAvailability();
   void raptorClient.route({
@@ -229,8 +240,7 @@ runSearchButton.addEventListener('click', () => {
   }).then(
     (result) => {
       const collection = buildReachableStopCollection(dataset, result.arrival, selection.departure);
-      const source = map.getSource<GeoJSONSource>('reachable-stops');
-      source?.setData(collection);
+      updateReachabilityLayers(map, result.polygons, collection);
       routeStatus.dataset.state = 'success';
       routeStatus.textContent = `到達 ${String(countReachableStops(result.arrival))}停留所（60分以内 ${String(collection.features.length)}地点）/ ポリゴン ${String(Math.round(result.polygons.generationMs))}ms`;
       serviceDay.textContent = `適用ダイヤ: ${formatServiceLayers(result.serviceLayers, selection.isLateNight)}`;
@@ -251,38 +261,7 @@ runSearchButton.addEventListener('click', () => {
 let mapLoaded = false;
 void map.once('load', () => {
   mapLoaded = true;
-  map.addSource('reachable-stops', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] },
-  });
-  map.addLayer({
-    id: 'reachable-stops-60',
-    type: 'circle',
-    source: 'reachable-stops',
-    filter: ['==', ['get', 'band'], 60],
-    layout: { visibility: showReachableStopDots ? 'visible' : 'none' },
-    paint: {
-      'circle-color': '#e19a26',
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 15, 6],
-      'circle-stroke-color': '#ffffff',
-      'circle-stroke-width': 1,
-      'circle-opacity': 0.9,
-    },
-  });
-  map.addLayer({
-    id: 'reachable-stops-30',
-    type: 'circle',
-    source: 'reachable-stops',
-    filter: ['==', ['get', 'band'], 30],
-    layout: { visibility: showReachableStopDots ? 'visible' : 'none' },
-    paint: {
-      'circle-color': '#16825f',
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 15, 6.5],
-      'circle-stroke-color': '#ffffff',
-      'circle-stroke-width': 1,
-      'circle-opacity': 0.92,
-    },
-  });
+  initializeReachabilityLayers(map, showReachableStopDots);
   mapStatus.hidden = true;
   map.resize();
   updateRunAvailability();
