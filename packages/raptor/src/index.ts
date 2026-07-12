@@ -12,6 +12,9 @@ export function formatRaptorDatasetLabel(dataset: DatasetIdentity): string {
 
 export * from './core.js';
 export * from './service-days.js';
+export * from './worker-client.js';
+export * from './worker-protocol.js';
+export * from './worker-server.js';
 
 export interface LoadedTimetable {
   readonly manifest: BrowserDatasetManifest;
