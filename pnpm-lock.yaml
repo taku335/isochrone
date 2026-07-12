@@ -29,6 +29,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@isochrone/gtfs-types':
+        specifier: workspace:*
+        version: link:../../packages/gtfs-types
       '@isochrone/raptor':
         specifier: workspace:*
         version: link:../../packages/raptor

@@ -17,3 +17,12 @@ PMTiles archive, host the archive and style assets on static storage, add the
 MapLibre PMTiles protocol adapter, and point `VITE_MAP_STYLE_URL` at the self-hosted
 style. Application map layers should continue to depend on MapLibre source and
 layer APIs rather than provider-specific URLs.
+
+Set `VITE_DATASET_MANIFEST_URL` when the generated browser dataset is not served
+at `/data/manifest.json`. During local development, it can point at the pipeline
+output through Vite's workspace file serving:
+
+```sh
+VITE_DATASET_MANIFEST_URL=/@fs/absolute/path/to/.cache/web-data/nagoya-cbus/manifest.json \
+  pnpm --filter @isochrone/web dev
+```
