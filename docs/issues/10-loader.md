@@ -25,4 +25,10 @@ blockedBy: 8
 
 Vitest。実データはスモークテストで確認。
 
+## 実装メモ
+
+- `loadTimetableFromManifestUrl()` は manifest URL と fetch 抽象を受け取り、stops/timetable JSON を取得して `LoadedTimetable` に展開する。
+- `loadTimetable()` は `BrowserDatasetManifest` / `BrowserStopsDataset` / `BrowserTimetableDataset` を直接受け取り、CSR 参照を `Int32Array`、時刻を delta 復号済み `Uint16Array` に変換する。
+- ミニ fixture は `@isochrone/pipeline` の `buildBrowserDatasetFiles()` で生成し、以降の M2 既知解テストの土台にする。
+
 参照: [docs/PLAN.md](https://github.com/taku335/isochrone/blob/main/docs/PLAN.md) §5 RAPTOR エンジン設計

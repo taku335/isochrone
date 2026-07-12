@@ -53,6 +53,10 @@ importers:
       '@isochrone/gtfs-types':
         specifier: workspace:*
         version: link:../gtfs-types
+    devDependencies:
+      '@isochrone/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
 
 packages:
 

@@ -16,5 +16,8 @@
   },
   "dependencies": {
     "@isochrone/gtfs-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@isochrone/pipeline": "workspace:*"
   }
 }
