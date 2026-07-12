@@ -10,6 +10,8 @@ export function formatRaptorDatasetLabel(dataset: DatasetIdentity): string {
   return `${dataset.agencyId}:${dataset.feedVersion}`;
 }
 
+export * from './service-days.js';
+
 export interface LoadedTimetable {
   readonly manifest: BrowserDatasetManifest;
   readonly stopIds: readonly PrefixedId[];

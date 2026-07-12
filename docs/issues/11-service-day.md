@@ -25,4 +25,10 @@ blockedBy: 10
 
 Vitest(テーブル駆動)。
 
+## 実装メモ
+
+- `resolveServiceLayers(calendar, date)` は当日レイヤ(`minuteOffset: 0`)と前日レイヤ(`minuteOffset: 1440`)を返す。
+- `calendar_dates` は同一日付の base service 集合に対して type 1 を追加、type 2 を除外する。
+- UI 表示用に `dayType` と `displayName` を返す。名古屋市バス feed の `平日` / `土曜` / `日休` 系 service_id を分類する。
+
 参照: [docs/PLAN.md](https://github.com/taku335/isochrone/blob/main/docs/PLAN.md) §5 RAPTOR エンジン設計
