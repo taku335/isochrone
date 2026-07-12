@@ -313,12 +313,18 @@ h1 {
   box-shadow: 0 0 0 1px rgb(32 40 35 / 20%);
 }
 
-.reachability-legend i[data-band="30"] {
-  background: #16825f;
+.reachability-legend i[data-layer="30"] {
+  border-radius: 2px;
+  background: var(--reachability-30);
 }
 
-.reachability-legend i[data-band="60"] {
-  background: #e19a26;
+.reachability-legend i[data-layer="60"] {
+  border-radius: 2px;
+  background: var(--reachability-60);
+}
+
+.reachability-legend i[data-layer="origin"] {
+  background: var(--origin-color);
 }
 
 .stop-search-loading[data-state="error"] {
