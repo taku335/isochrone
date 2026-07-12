@@ -1,5 +1,6 @@
 import { route, type EarliestArrivalQuery } from './core.js';
 import { loadTimetableFromManifestUrl, type LoadedTimetable } from './index.js';
+import { resolveServiceLayers } from './service-days.js';
 import {
   type RaptorWorkerRequest,
   type RaptorWorkerServerPort,
@@ -74,12 +75,21 @@ export function attachRaptorWorkerServer(
           return;
         }
         const arrival = result.arrival.buffer as ArrayBuffer;
+        const serviceLayers = resolveServiceLayers(data.calendar, request.query.serviceDate).map(
+          ({ date, minuteOffset, dayType, displayName }) => ({
+            date,
+            minuteOffset,
+            dayType,
+            displayName,
+          }),
+        );
         port.postMessage(
           {
             type: 'result',
             requestId: request.requestId,
             arrival,
             rounds: result.rounds,
+            serviceLayers,
           },
           [arrival],
         );

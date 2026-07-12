@@ -1,5 +1,6 @@
 import { type EarliestArrivalQuery } from './core.js';
 import { type LoadedTimetableStats } from './index.js';
+import { type ServiceDayType } from './service-days.js';
 
 export type RaptorWorkerRequest = LoadRequest | QueryRequest | CancelRequest;
 
@@ -43,6 +44,14 @@ export interface RouteResultResponse {
   readonly requestId: number;
   readonly arrival: ArrayBuffer;
   readonly rounds: number;
+  readonly serviceLayers: readonly WorkerServiceLayer[];
+}
+
+export interface WorkerServiceLayer {
+  readonly date: string;
+  readonly minuteOffset: 0 | 1440;
+  readonly dayType: ServiceDayType;
+  readonly displayName: string;
 }
 
 export interface WorkerErrorResponse {

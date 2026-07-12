@@ -4,6 +4,7 @@ import {
   type ProgressResponse,
   type RaptorWorkerClientPort,
   type RaptorWorkerResponse,
+  type WorkerServiceLayer,
 } from './worker-protocol.js';
 
 export interface RaptorWorkerClientOptions {
@@ -14,6 +15,10 @@ interface PendingRequest {
   readonly kind: 'load' | 'query';
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason: Error) => void;
+}
+
+export interface RaptorWorkerRouteResult extends OneToAllResult {
+  readonly serviceLayers: readonly WorkerServiceLayer[];
 }
 
 export class SupersededQueryError extends Error {
@@ -66,7 +71,7 @@ export class RaptorWorkerClient {
     return this.#loadPromise;
   }
 
-  public route(query: EarliestArrivalQuery): Promise<OneToAllResult> {
+  public route(query: EarliestArrivalQuery): Promise<RaptorWorkerRouteResult> {
     if (this.#activeQueryId !== null) {
       const previousId = this.#activeQueryId;
       this.#pending.get(previousId)?.reject(new SupersededQueryError());
@@ -76,11 +81,11 @@ export class RaptorWorkerClient {
 
     const requestId = this.nextRequestId();
     this.#activeQueryId = requestId;
-    return new Promise<OneToAllResult>((resolve, reject) => {
+    return new Promise<RaptorWorkerRouteResult>((resolve, reject) => {
       this.#pending.set(requestId, {
         kind: 'query',
         resolve: (value) => {
-          resolve(value as OneToAllResult);
+          resolve(value as RaptorWorkerRouteResult);
         },
         reject,
       });
@@ -128,7 +133,11 @@ export class RaptorWorkerClient {
       if (this.#activeQueryId === response.requestId) {
         this.#activeQueryId = null;
       }
-      pending.resolve({ arrival: new Uint16Array(response.arrival), rounds: response.rounds });
+      pending.resolve({
+        arrival: new Uint16Array(response.arrival),
+        rounds: response.rounds,
+        serviceLayers: response.serviceLayers,
+      });
       return;
     }
 
