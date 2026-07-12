@@ -2,42 +2,139 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100%;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  color: #18202a;
-  background: #f5f7fa;
+  color: #20252b;
+  background: #edf0ee;
 }
 
-.shell {
+#app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.app-shell {
   display: grid;
-  min-height: 100vh;
-  align-content: center;
-  gap: 0.75rem;
-  padding: 3rem;
+  grid-template-rows: 58px minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
 }
 
-.eyebrow {
+.topbar {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid #cfd5d2;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 1px 4px rgb(24 35 30 / 8%);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 6px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: #15805d;
+  box-shadow: 8px 0 0 #df4b3f;
+}
+
+.brand-kicker {
   margin: 0;
-  color: #356269;
-  font-size: 0.875rem;
+  color: #68716d;
+  font-size: 0.625rem;
   font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 h1 {
   margin: 0;
-  font-size: clamp(2.5rem, 8vw, 6rem);
-  line-height: 1;
+  overflow: hidden;
+  color: #202b27;
+  font-size: 1rem;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-p {
-  max-width: 36rem;
+.map-status {
+  flex: 0 0 auto;
   margin: 0;
-  color: #46515f;
-  font-size: 1.125rem;
+  color: #58635e;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.map-status[data-state="error"] {
+  color: #a52c23;
+}
+
+.map-stage,
+.map {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.map-stage {
+  position: relative;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid rgb(26 39 33 / 14%);
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgb(20 31 26 / 16%);
+}
+
+.maplibregl-ctrl-attrib {
+  color: #3d4742;
+  font-size: 10px;
+}
+
+@media (max-width: 540px) {
+  .app-shell {
+    grid-template-rows: 52px minmax(0, 1fr);
+  }
+
+  .topbar {
+    padding: 0 0.75rem;
+  }
+
+  .brand-mark {
+    height: 26px;
+  }
+
+  .brand-kicker {
+    display: none;
+  }
+
+  h1 {
+    max-width: 58vw;
+    font-size: 0.9375rem;
+  }
 }
