@@ -10,6 +10,7 @@ export function formatRaptorDatasetLabel(dataset: DatasetIdentity): string {
   return `${dataset.agencyId}:${dataset.feedVersion}`;
 }
 
+export * from './core.js';
 export * from './service-days.js';
 
 export interface LoadedTimetable {
