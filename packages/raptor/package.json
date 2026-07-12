@@ -10,6 +10,7 @@
     }
   },
   "scripts": {
+    "cli": "tsx src/cli.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --pretty false",
     "test": "vitest run"
@@ -18,6 +19,7 @@
     "@isochrone/gtfs-types": "workspace:*"
   },
   "devDependencies": {
-    "@isochrone/pipeline": "workspace:*"
+    "@isochrone/pipeline": "workspace:*",
+    "tsx": "^4.20.6"
   }
 }

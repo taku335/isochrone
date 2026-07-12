@@ -1,0 +1,45 @@
+{
+  "formatVersion": 1,
+  "agencyId": "nagoya-cbus",
+  "feedVersion": "2026-05-18T01:57:40.761365",
+  "verifiedAt": "2026-07-12",
+  "sources": [
+    "https://www.kotsu.city.nagoya.jp/rp/bus/timetable.html",
+    "https://www.kotsu.city.nagoya.jp/Yomiage/CityBusRoute/RosenMapKikanDetail?code=2&direction=%E5%BE%80&from=%E6%A0%84&name=%E5%9F%BA%E5%B9%B92&to=%E5%9B%9B%E8%BB%92%E5%AE%B6"
+  ],
+  "cases": [
+    {
+      "name": "weekday-morning-from-sakae",
+      "origin": "栄",
+      "serviceDate": "20260707",
+      "departure": "08:00",
+      "reachableStops": 3884,
+      "representatives": {
+        "名古屋駅": "08:15",
+        "金山": "08:21"
+      }
+    },
+    {
+      "name": "saturday-late-from-nagoya-station",
+      "origin": "名古屋駅",
+      "serviceDate": "20260704",
+      "departure": "23:30",
+      "reachableStops": 100,
+      "representatives": {
+        "栄": null,
+        "金山": null
+      }
+    },
+    {
+      "name": "previous-service-day-after-midnight",
+      "origin": "香流橋東",
+      "serviceDate": "20260708",
+      "departure": "00:00",
+      "reachableStops": 3884,
+      "representatives": {
+        "四軒家": "00:23",
+        "栄": "06:26"
+      }
+    }
+  ]
+}
