@@ -6,6 +6,7 @@ export * from './downloader.js';
 export * from './footpaths.js';
 export * from './gtfs-parser.js';
 export * from './patterns.js';
+export * from './validation.js';
 
 export function describePipelineDataset(agencyId: AgencyId, feedVersion: string): string {
   const dataset = createDatasetIdentity(agencyId, feedVersion);
