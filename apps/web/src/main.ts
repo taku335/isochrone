@@ -1,5 +1,10 @@
 import { getAppName } from './index.js';
 import {
+  CC_BY_4_URL,
+  DATASET_SOURCE_URL,
+  formatDatasetSummary,
+} from './about.js';
+import {
   buildReachableStopCollection,
   countReachableStops,
   formatServiceLayers,
@@ -42,7 +47,10 @@ app.innerHTML = `
           <h1>${getAppName()}</h1>
         </div>
       </div>
-      <p class="map-status" role="status">地図を読み込み中</p>
+      <div class="topbar-actions">
+        <p class="map-status" role="status">地図を読み込み中</p>
+        <button class="about-open" type="button" aria-label="このサービスについて" title="このサービスについて">i</button>
+      </div>
     </header>
     <div class="map-stage">
       <div id="map" class="map" aria-label="名古屋市の地図"></div>
@@ -89,6 +97,7 @@ app.innerHTML = `
           <button class="run-search" type="button" disabled>到達範囲を探索</button>
           <p class="route-status" role="status">出発停留所を選択してください</p>
           <p class="service-day" hidden></p>
+          <p class="scope-note">市バスのみ（地下鉄・他社線は含みません）</p>
           <div class="reachability-legend" hidden aria-label="到達時間の凡例">
             <span><i data-layer="30"></i>30分圏</span>
             <span><i data-layer="60"></i>60分圏</span>
@@ -96,8 +105,35 @@ app.innerHTML = `
           </div>
         </div>
       </section>
+      <footer class="data-footer">
+        <a href="${DATASET_SOURCE_URL}" target="_blank" rel="noopener">出典: 名古屋市交通局 市バス GTFS-JP</a>
+        <a href="${CC_BY_4_URL}" target="_blank" rel="noopener">CC BY 4.0</a>
+        <span class="dataset-summary">データ情報を読み込み中</span>
+      </footer>
     </div>
   </main>
+  <dialog class="about-dialog" aria-labelledby="about-title">
+    <header>
+      <h2 id="about-title">このサービスについて</h2>
+      <button class="about-close" type="button" aria-label="閉じる" title="閉じる">×</button>
+    </header>
+    <div class="about-content">
+      <section>
+        <h3>対象データ</h3>
+        <p><a href="${DATASET_SOURCE_URL}" target="_blank" rel="noopener">名古屋市交通局 市バス GTFS-JP</a>を<a href="${CC_BY_4_URL}" target="_blank" rel="noopener">CC BY 4.0</a>に基づいて利用しています。</p>
+        <p class="about-dataset-summary">データ情報を読み込み中</p>
+        <p>市バスのみを対象とし、地下鉄・他社線は含みません。</p>
+      </section>
+      <section>
+        <h3>算出方法</h3>
+        <p>時刻表探索にはRAPTORを使用しています。徒歩乗換は停留所から300m以内、歩行速度80m/分として計算します。</p>
+      </section>
+      <section>
+        <h3>ご利用にあたって</h3>
+        <p>表示結果は時刻表データに基づく目安です。遅延・運休・道路状況などにより、実際の運行や所要時間と異なる場合があります。</p>
+      </section>
+    </div>
+  </dialog>
 `;
 
 const mapContainer = document.querySelector<HTMLDivElement>('#map');
@@ -120,6 +156,12 @@ const runButton = document.querySelector<HTMLButtonElement>('.run-search');
 const routeStatus = document.querySelector<HTMLParagraphElement>('.route-status');
 const serviceDay = document.querySelector<HTMLParagraphElement>('.service-day');
 const legend = document.querySelector<HTMLElement>('.reachability-legend');
+const datasetSummaries = document.querySelectorAll<HTMLElement>(
+  '.dataset-summary, .about-dataset-summary',
+);
+const aboutDialog = document.querySelector<HTMLDialogElement>('.about-dialog');
+const aboutOpen = document.querySelector<HTMLButtonElement>('.about-open');
+const aboutClose = document.querySelector<HTMLButtonElement>('.about-close');
 if (
   dateInput === null ||
   timeInput === null ||
@@ -127,11 +169,20 @@ if (
   runButton === null ||
   routeStatus === null ||
   serviceDay === null ||
-  legend === null
+  legend === null ||
+  aboutDialog === null ||
+  aboutOpen === null ||
+  aboutClose === null
 ) {
   throw new Error('Departure controls were not found.');
 }
 const runSearchButton = runButton;
+aboutOpen.addEventListener('click', () => {
+  aboutDialog.showModal();
+});
+aboutClose.addEventListener('click', () => {
+  aboutDialog.close();
+});
 
 const defaults = getDefaultDeparture();
 dateInput.value = defaults.date;
@@ -171,6 +222,10 @@ void loadStopDatasetWithManifest(manifestUrl)
   .then(({ manifest, stops }) => {
     stopDataset = stops;
     const groups = buildStopGroups(stops);
+    const datasetSummary = formatDatasetSummary(manifest);
+    datasetSummaries.forEach((element) => {
+      element.textContent = datasetSummary;
+    });
     searchLoading.hidden = true;
     initializeStopSearchUi({ root: searchPanel, groups, onSelect: selectStopGroup });
     if (manifest.servicePeriod.startDate !== null) {
