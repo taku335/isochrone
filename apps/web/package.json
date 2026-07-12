@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@isochrone/gtfs-types": "workspace:*",
     "@isochrone/raptor": "workspace:*",
     "maplibre-gl": "^5.24.0"
   },

@@ -40,11 +40,12 @@ export async function parseGtfsZipFile(
 
 export function parseGtfsZip(zipBytes: Uint8Array, options: ParseGtfsOptions): NormalizedGtfs {
   const entries = unzipSync(zipBytes);
+  const stopNameKanas = parseStopNameKanas(readOptionalGtfsText(entries, 'translations.txt'));
 
   return {
     agencyId: options.agencyId,
     idPrefix: options.idPrefix,
-    stops: parseStops(readGtfsText(entries, 'stops.txt'), options.idPrefix),
+    stops: parseStops(readGtfsText(entries, 'stops.txt'), options.idPrefix, stopNameKanas),
     routes: parseRoutes(readGtfsText(entries, 'routes.txt'), options.idPrefix),
     trips: parseTrips(readGtfsText(entries, 'trips.txt'), options.idPrefix),
     stopTimes: parseStopTimes(readGtfsText(entries, 'stop_times.txt'), options.idPrefix),
@@ -82,17 +83,55 @@ export function parseGtfsTimeToMinutes(value: string): MinutesSinceServiceDaySta
   return Number(hours) * 60 + Number(minutes) + Math.floor(Number(seconds) / 60);
 }
 
-function parseStops(text: string, idPrefix: string): NormalizedStop[] {
+function parseStops(
+  text: string,
+  idPrefix: string,
+  translatedKanas: ReadonlyMap<string, string>,
+): NormalizedStop[] {
   return parseCsvRecords(text, 'stops.txt', ['stop_id', 'stop_name', 'stop_lat', 'stop_lon']).map(
-    (record) => ({
-      stopId: prefixId(idPrefix, readRequired(record, 'stop_id')),
-      stopName: readRequired(record, 'stop_name'),
-      stopLat: readNumber(record, 'stop_lat'),
-      stopLon: readNumber(record, 'stop_lon'),
-      ...readOptionalString(record, 'stop_code', 'stopCode'),
-      ...readOptionalString(record, 'stop_name_kana', 'stopNameKana'),
-    }),
+    (record) => {
+      const stopName = readRequired(record, 'stop_name');
+      const inlineKana = record.stop_name_kana;
+      const stopNameKana =
+        inlineKana === undefined || inlineKana.length === 0
+          ? translatedKanas.get(stopName)
+          : inlineKana;
+      return {
+        stopId: prefixId(idPrefix, readRequired(record, 'stop_id')),
+        stopName,
+        stopLat: readNumber(record, 'stop_lat'),
+        stopLon: readNumber(record, 'stop_lon'),
+        ...readOptionalString(record, 'stop_code', 'stopCode'),
+        ...(stopNameKana === undefined ? {} : { stopNameKana }),
+      };
+    },
   );
+}
+
+function parseStopNameKanas(text: string | null): ReadonlyMap<string, string> {
+  const kanas = new Map<string, string>();
+  if (text === null) {
+    return kanas;
+  }
+
+  const records = parseCsvRecords(text, 'translations.txt', [
+    'table_name',
+    'field_name',
+    'language',
+    'translation',
+    'field_value',
+  ]);
+  for (const record of records) {
+    if (
+      record.table_name === 'stops' &&
+      record.field_name === 'stop_name' &&
+      record.language === 'ja-Hrkt'
+    ) {
+      const stopName = readRequired(record, 'field_value');
+      kanas.set(stopName, readRequired(record, 'translation'));
+    }
+  }
+  return kanas;
 }
 
 function parseRoutes(text: string, idPrefix: string): NormalizedRoute[] {
@@ -178,6 +217,17 @@ function readGtfsText(entries: Readonly<Record<string, Uint8Array>>, fileName: s
   }
 
   return decoder.decode(bytes);
+}
+
+function readOptionalGtfsText(
+  entries: Readonly<Record<string, Uint8Array>>,
+  fileName: string,
+): string | null {
+  const entry = Object.entries(entries).find(([path]) => basename(path) === fileName);
+  if (entry === undefined || entry[1].length === 0) {
+    return null;
+  }
+  return decoder.decode(entry[1]);
 }
 
 function prefixId(prefix: string, id: string): PrefixedId {

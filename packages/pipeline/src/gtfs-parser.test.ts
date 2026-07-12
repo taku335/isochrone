@@ -21,6 +21,7 @@ describe('parseGtfsZip', () => {
     expect(gtfs.stops[0]).toMatchObject({
       stopId: 'nagoya-cbus:S1',
       stopName: 'Stop 1',
+      stopNameKana: 'すとっぷいち',
       stopLat: 35.1,
       stopLon: 136.9,
     });
@@ -109,6 +110,11 @@ const baseFixtureFiles = {
   'calendar_dates.txt': csv([
     ['service_id', 'date', 'exception_type'],
     ['WKD', '20260506', '2'],
+  ]),
+  'translations.txt': csv([
+    ['table_name', 'field_name', 'language', 'translation', 'record_id', 'record_sub_id', 'field_value'],
+    ['stops', 'stop_name', 'ja-Hrkt', 'すとっぷいち', '', '', 'Stop 1'],
+    ['stops', 'stop_name', 'en', 'Stop One', '', '', 'Stop 1'],
   ]),
 };
 
