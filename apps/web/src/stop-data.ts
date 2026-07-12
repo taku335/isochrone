@@ -5,6 +5,11 @@ import {
 
 export const DEFAULT_DATASET_MANIFEST_URL = '/data/manifest.json';
 
+export interface LoadedStopDataset {
+  readonly manifest: BrowserDatasetManifest;
+  readonly stops: BrowserStopsDataset;
+}
+
 export function resolveDatasetManifestUrl(
   environment: Readonly<Record<string, string | undefined>> = import.meta.env,
 ): string {
@@ -19,10 +24,19 @@ export async function loadStopDataset(
   fetchImpl: typeof fetch = fetch,
   baseUrl: string = window.location.href,
 ): Promise<BrowserStopsDataset> {
+  return (await loadStopDatasetWithManifest(manifestUrl, fetchImpl, baseUrl)).stops;
+}
+
+export async function loadStopDatasetWithManifest(
+  manifestUrl: string,
+  fetchImpl: typeof fetch = fetch,
+  baseUrl: string = window.location.href,
+): Promise<LoadedStopDataset> {
   const absoluteManifestUrl = new URL(manifestUrl, baseUrl).href;
   const manifest = await fetchJson<BrowserDatasetManifest>(absoluteManifestUrl, fetchImpl);
   const stopsUrl = new URL(manifest.files.stops.path, absoluteManifestUrl).href;
-  return fetchJson<BrowserStopsDataset>(stopsUrl, fetchImpl);
+  const stops = await fetchJson<BrowserStopsDataset>(stopsUrl, fetchImpl);
+  return { manifest, stops };
 }
 
 async function fetchJson<T>(url: string, fetchImpl: typeof fetch): Promise<T> {
