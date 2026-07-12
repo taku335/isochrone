@@ -1,0 +1,167 @@
+import {
+  type NormalizedGtfs,
+  type NormalizedStopTime,
+  type PrefixedId,
+} from '@isochrone/gtfs-types';
+import { buildBrowserDatasetFiles } from '@isochrone/pipeline';
+import { describe, expect, it } from 'vitest';
+
+import {
+  loadTimetable,
+  type Query,
+  route,
+  UNREACHED,
+} from './index.js';
+
+describe('route', () => {
+  const data = loadTimetable(buildBrowserDatasetFiles(miniGtfs, { feedVersion: 'mini' }));
+  const stopIndex = new Map(data.stopIds.map((id, index) => [id, index]));
+
+  it('matches known arrivals with zero, one, and two transfers', () => {
+    const oneRide = run(1);
+    expect(read(oneRide, 'A')).toBe(479);
+    expect(read(oneRide, 'B')).toBe(490);
+    expect(read(oneRide, 'C')).toBe(UNREACHED);
+
+    const oneTransfer = run(2);
+    expect(read(oneTransfer, 'C')).toBe(505);
+    expect(read(oneTransfer, 'D')).toBe(UNREACHED);
+
+    const twoTransfers = run(3);
+    expect(read(twoTransfers, 'D')).toBe(520);
+  });
+
+  it('combines the previous service day 24h+ trip with the query timeline', () => {
+    const result = route(data, {
+      kind: 'earliestArrival',
+      origins: [{ stopIndex: indexOf('N1'), departure: 55 }],
+      serviceDate: '2026-07-08',
+      maxRounds: 1,
+    });
+
+    expect(read(result.arrival, 'N2')).toBe(70);
+  });
+
+  it('never worsens arrivals when maxRounds increases', () => {
+    const results = [0, 1, 2, 3, 4].map(run);
+
+    for (let round = 1; round < results.length; round += 1) {
+      const previous = results[round - 1];
+      const current = results[round];
+      expect(previous).toBeDefined();
+      expect(current).toBeDefined();
+      current?.forEach((arrival, index) => {
+        expect(arrival).toBeLessThanOrEqual(previous?.[index] ?? UNREACHED);
+      });
+    }
+  });
+
+  it('exposes the future latest-departure query as a type', () => {
+    const query: Query = {
+      kind: 'latestDeparture',
+      destinations: [{ stopIndex: indexOf('D'), arrival: 540 }],
+      serviceDate: '2026-07-07',
+    };
+
+    expect(query.kind).toBe('latestDeparture');
+  });
+
+  function run(maxRounds: number): Uint16Array {
+    return route(data, {
+      kind: 'earliestArrival',
+      origins: [{ stopIndex: indexOf('A'), departure: 479 }],
+      serviceDate: '20260707',
+      maxRounds,
+    }).arrival;
+  }
+
+  function indexOf(id: string): number {
+    const index = stopIndex.get(prefixedId(id));
+    if (index === undefined) {
+      throw new Error(`Unknown fixture stop: ${id}`);
+    }
+    return index;
+  }
+
+  function read(arrival: Uint16Array, id: string): number {
+    return arrival[indexOf(id)] ?? UNREACHED;
+  }
+});
+
+const miniGtfs: NormalizedGtfs = {
+  agencyId: 'mini',
+  idPrefix: 'mini',
+  stops: ['A', 'B', 'C', 'D', 'N1', 'N2'].map((id, index) => ({
+    stopId: prefixedId(id),
+    stopName: id,
+    stopLat: 35 + index * 0.01,
+    stopLon: 136 + index * 0.01,
+  })),
+  routes: ['AB', 'BC', 'CD', 'N'].map((id) => ({
+    routeId: prefixedId(id),
+    routeShortName: id,
+    routeLongName: id,
+    routeType: 3,
+  })),
+  trips: [
+    trip('AB1', 'AB'),
+    trip('AB2', 'AB'),
+    trip('BC1', 'BC'),
+    trip('CD1', 'CD'),
+    trip('N1', 'N'),
+  ],
+  stopTimes: [
+    ...times('AB1', ['A', 'B'], [480, 490]),
+    ...times('AB2', ['A', 'B'], [500, 510]),
+    ...times('BC1', ['B', 'C'], [495, 505]),
+    ...times('CD1', ['C', 'D'], [510, 520]),
+    ...times('N1', ['N1', 'N2'], [1500, 1510]),
+  ],
+  calendar: [
+    {
+      serviceId: prefixedId('WKD'),
+      monday: true,
+      tuesday: true,
+      wednesday: true,
+      thursday: true,
+      friday: true,
+      saturday: false,
+      sunday: false,
+      startDate: '20260701',
+      endDate: '20260731',
+    },
+  ],
+  calendarDates: [],
+};
+
+function trip(tripId: string, routeId: string) {
+  return {
+    tripId: prefixedId(tripId),
+    routeId: prefixedId(routeId),
+    serviceId: prefixedId('WKD'),
+  };
+}
+
+function times(
+  tripId: string,
+  stopIds: readonly string[],
+  minutes: readonly number[],
+): NormalizedStopTime[] {
+  return stopIds.map((stopId, index) => {
+    const minute = minutes[index];
+    if (minute === undefined) {
+      throw new Error(`Missing fixture time for ${tripId} at ${stopId}.`);
+    }
+    return {
+      tripId: prefixedId(tripId),
+      stopId: prefixedId(stopId),
+      stopSequence: index + 1,
+      arrivalTime: minute,
+      departureTime: minute,
+    };
+  });
+}
+
+function prefixedId(id: string): PrefixedId {
+  return `mini:${id}` as PrefixedId;
+}
