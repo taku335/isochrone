@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 
 import { findAgency, findAgenciesConfigPath, loadAgenciesConfig } from './agencies.js';
 import { downloadGtfsZip, readDownloadManifest } from './downloader.js';
+import { buildFootpaths, DEFAULT_FOOTPATH_CONFIG, getFootpathStats } from './footpaths.js';
 import { getGtfsStats, parseGtfsZipFile } from './gtfs-parser.js';
 import { buildCompactTimetable, getCompactTimetableStats } from './patterns.js';
 
@@ -13,6 +14,7 @@ Commands:
   download <agency-id>    Download and cache a GTFS-JP zip
   inspect <agency-id>     Parse the cached GTFS-JP zip and print counts
   compact <agency-id>     Build compact timetable stats from the cached zip
+  footpaths <agency-id>   Generate footpath CSR stats from the cached zip
 
 Options:
   --cache-dir <path>      Cache directory (default: .cache/gtfs)
@@ -23,6 +25,7 @@ Examples:
   pipeline download nagoya-cbus
   pipeline inspect nagoya-cbus
   pipeline compact nagoya-cbus
+  pipeline footpaths nagoya-cbus
   docker compose run --rm pipeline download nagoya-cbus`;
 
 export async function runPipelineCli(
@@ -69,6 +72,26 @@ export async function runPipelineCli(
       for (const warning of timetable.warnings) {
         writeError(`warning: ${warning}`);
       }
+      return 0;
+    }
+
+    if (command === 'footpaths') {
+      const options = parseAgencyCommandArgs(rest, 'footpaths');
+      const configPath = options.configPath ?? findAgenciesConfigPath();
+      const config = await loadAgenciesConfig(configPath);
+      const agency = findAgency(config, options.agencyId);
+      const cacheDir = resolve(options.cacheDir ?? resolve(dirname(configPath), '..', '.cache', 'gtfs'));
+      const manifest = await readDownloadManifest(resolve(cacheDir, agency.id, 'manifest.json'));
+      if (manifest === null) {
+        throw new Error(`No cached GTFS manifest found for ${agency.id}. Run download first.`);
+      }
+
+      const gtfs = await parseGtfsZipFile(manifest.zipPath, {
+        agencyId: agency.id,
+        idPrefix: agency.idPrefix,
+      });
+      const footpaths = buildFootpaths(gtfs.stops, agency.footpaths ?? DEFAULT_FOOTPATH_CONFIG);
+      write(JSON.stringify(getFootpathStats(footpaths), null, 2));
       return 0;
     }
 

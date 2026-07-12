@@ -88,3 +88,16 @@ export interface CompactTimetable {
   readonly stopPatternIndices: readonly number[];
   readonly warnings: readonly string[];
 }
+
+export interface FootpathCsr {
+  readonly stopIds: readonly PrefixedId[];
+  readonly offsets: readonly number[];
+  readonly targetStopIds: readonly PrefixedId[];
+  readonly durations: readonly number[];
+  readonly sameNameGroups: readonly StopNameGroup[];
+}
+
+export interface StopNameGroup {
+  readonly name: string;
+  readonly stopIds: readonly PrefixedId[];
+}
