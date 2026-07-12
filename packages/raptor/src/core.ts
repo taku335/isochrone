@@ -52,6 +52,7 @@ export function route(
   const arrival = new Uint16Array(data.stopIds.length);
   arrival.fill(UNREACHED);
   let marked = new Uint8Array(data.stopIds.length);
+  const footpathRows = buildFootpathRows(data);
 
   for (const origin of query.origins) {
     assertStopIndex(origin.stopIndex, data.stopIds.length);
@@ -61,6 +62,9 @@ export function route(
       marked[origin.stopIndex] = 1;
     }
   }
+
+  const originSources = marked.slice();
+  relaxFootpaths(data, originSources, arrival.slice(), arrival, marked, footpathRows);
 
   const layers = resolveServiceLayers(data.calendar, normalizeServiceDate(query.serviceDate));
   const activeServices = layers.map((layer) => buildActiveServices(data, layer));
@@ -95,6 +99,15 @@ export function route(
       );
     }
 
+    const footpathSources = nextMarked.slice();
+    relaxFootpaths(
+      data,
+      footpathSources,
+      arrival.slice(),
+      arrival,
+      nextMarked,
+      footpathRows,
+    );
     rounds = round;
     marked = nextMarked;
     if (!marked.some((value) => value !== 0)) {
@@ -103,6 +116,44 @@ export function route(
   }
 
   return { arrival, rounds };
+}
+
+function relaxFootpaths(
+  data: LoadedTimetable,
+  sources: Uint8Array,
+  sourceArrival: Uint16Array,
+  arrival: Uint16Array,
+  marked: Uint8Array,
+  footpathRows: Int32Array,
+): void {
+  sources.forEach((isSource, stopIndex) => {
+    if (isSource === 0) {
+      return;
+    }
+    const reachedAt = sourceArrival[stopIndex] ?? UNREACHED;
+    const row = footpathRows[stopIndex] ?? -1;
+    if (reachedAt === UNREACHED || row < 0) {
+      return;
+    }
+
+    const edgeStart = data.footpaths.offsets[row] ?? 0;
+    const edgeEnd = data.footpaths.offsets[row + 1] ?? edgeStart;
+    for (let edge = edgeStart; edge < edgeEnd; edge += 1) {
+      const targetStopIndex = data.footpaths.targetStopIndices[edge];
+      const duration = data.footpaths.durations[edge];
+      if (targetStopIndex === undefined || duration === undefined) {
+        continue;
+      }
+      const transferredArrival = reachedAt + duration;
+      if (
+        transferredArrival < UNREACHED &&
+        transferredArrival < (arrival[targetStopIndex] ?? UNREACHED)
+      ) {
+        arrival[targetStopIndex] = transferredArrival;
+        marked[targetStopIndex] = 1;
+      }
+    }
+  });
 }
 
 function scanPattern(
@@ -304,6 +355,17 @@ function buildStopPatternRows(data: LoadedTimetable): Int32Array {
   const rows = new Int32Array(data.stopIds.length);
   rows.fill(-1);
   data.stopPatternIndex.stopIndices.forEach((stopIndex, row) => {
+    if (stopIndex >= 0 && stopIndex < rows.length) {
+      rows[stopIndex] = row;
+    }
+  });
+  return rows;
+}
+
+function buildFootpathRows(data: LoadedTimetable): Int32Array {
+  const rows = new Int32Array(data.stopIds.length);
+  rows.fill(-1);
+  data.footpaths.stopIndices.forEach((stopIndex, row) => {
     if (stopIndex >= 0 && stopIndex < rows.length) {
       rows[stopIndex] = row;
     }

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   loadTimetable,
+  type LoadedTimetable,
   type Query,
   route,
   UNREACHED,
@@ -16,6 +17,10 @@ import {
 describe('route', () => {
   const data = loadTimetable(buildBrowserDatasetFiles(miniGtfs, { feedVersion: 'mini' }));
   const stopIndex = new Map(data.stopIds.map((id, index) => [id, index]));
+  const transferData = withFootpaths(data, [
+    [indexOf('B'), indexOf('E'), 3],
+    [indexOf('W'), indexOf('A'), 1],
+  ]);
 
   it('matches known arrivals with zero, one, and two transfers', () => {
     const oneRide = run(1);
@@ -56,6 +61,45 @@ describe('route', () => {
     }
   });
 
+  it('uses an initial walk before the first transit round', () => {
+    const result = route(transferData, {
+      kind: 'earliestArrival',
+      origins: [{ stopIndex: indexOf('W'), departure: 478 }],
+      serviceDate: '20260707',
+      maxRounds: 1,
+    });
+
+    expect(read(result.arrival, 'A')).toBe(479);
+    expect(read(result.arrival, 'B')).toBe(490);
+  });
+
+  it('relaxes a footpath between transit rounds without worsening labels', () => {
+    const firstRound = runTransfers([{ stopIndex: indexOf('A'), departure: 479 }], 1);
+    const secondRound = runTransfers([{ stopIndex: indexOf('A'), departure: 479 }], 2);
+
+    expect(read(firstRound, 'E')).toBe(493);
+    expect(read(firstRound, 'F')).toBe(UNREACHED);
+    expect(read(secondRound, 'F')).toBe(515);
+    secondRound.forEach((arrival, index) => {
+      expect(arrival).toBeLessThanOrEqual(firstRound[index] ?? UNREACHED);
+    });
+  });
+
+  it('returns the element-wise minimum of each origin searched alone', () => {
+    const origins = [
+      { stopIndex: indexOf('A'), departure: 499 },
+      { stopIndex: indexOf('C'), departure: 509 },
+      { stopIndex: indexOf('W'), departure: 478 },
+    ];
+    const singles = origins.map((origin) => runTransfers([origin], 3));
+    const combined = runTransfers(origins, 3);
+
+    combined.forEach((arrival, index) => {
+      const expected = Math.min(...singles.map((single) => single[index] ?? UNREACHED));
+      expect(arrival).toBe(expected);
+    });
+  });
+
   it('exposes the future latest-departure query as a type', () => {
     const query: Query = {
       kind: 'latestDeparture',
@@ -70,6 +114,18 @@ describe('route', () => {
     return route(data, {
       kind: 'earliestArrival',
       origins: [{ stopIndex: indexOf('A'), departure: 479 }],
+      serviceDate: '20260707',
+      maxRounds,
+    }).arrival;
+  }
+
+  function runTransfers(
+    origins: readonly { readonly stopIndex: number; readonly departure: number }[],
+    maxRounds: number,
+  ): Uint16Array {
+    return route(transferData, {
+      kind: 'earliestArrival',
+      origins,
       serviceDate: '20260707',
       maxRounds,
     }).arrival;
@@ -91,13 +147,13 @@ describe('route', () => {
 const miniGtfs: NormalizedGtfs = {
   agencyId: 'mini',
   idPrefix: 'mini',
-  stops: ['A', 'B', 'C', 'D', 'N1', 'N2'].map((id, index) => ({
+  stops: ['A', 'B', 'C', 'D', 'E', 'F', 'N1', 'N2', 'W'].map((id, index) => ({
     stopId: prefixedId(id),
     stopName: id,
     stopLat: 35 + index * 0.01,
     stopLon: 136 + index * 0.01,
   })),
-  routes: ['AB', 'BC', 'CD', 'N'].map((id) => ({
+  routes: ['AB', 'BC', 'CD', 'EF', 'N'].map((id) => ({
     routeId: prefixedId(id),
     routeShortName: id,
     routeLongName: id,
@@ -108,6 +164,7 @@ const miniGtfs: NormalizedGtfs = {
     trip('AB2', 'AB'),
     trip('BC1', 'BC'),
     trip('CD1', 'CD'),
+    trip('EF1', 'EF'),
     trip('N1', 'N'),
   ],
   stopTimes: [
@@ -115,6 +172,7 @@ const miniGtfs: NormalizedGtfs = {
     ...times('AB2', ['A', 'B'], [500, 510]),
     ...times('BC1', ['B', 'C'], [495, 505]),
     ...times('CD1', ['C', 'D'], [510, 520]),
+    ...times('EF1', ['E', 'F'], [495, 515]),
     ...times('N1', ['N1', 'N2'], [1500, 1510]),
   ],
   calendar: [
@@ -164,4 +222,36 @@ function times(
 
 function prefixedId(id: string): PrefixedId {
   return `mini:${id}` as PrefixedId;
+}
+
+function withFootpaths(
+  data: LoadedTimetable,
+  undirectedEdges: readonly (readonly [number, number, number])[],
+): LoadedTimetable {
+  const edges = Array.from({ length: data.stopIds.length }, () => new Map<number, number>());
+  for (const [from, to, duration] of undirectedEdges) {
+    edges[from]?.set(to, duration);
+    edges[to]?.set(from, duration);
+  }
+
+  const offsets = [0];
+  const targetStopIndices: number[] = [];
+  const durations: number[] = [];
+  edges.forEach((targets) => {
+    for (const [target, duration] of [...targets].sort(([a], [b]) => a - b)) {
+      targetStopIndices.push(target);
+      durations.push(duration);
+    }
+    offsets.push(targetStopIndices.length);
+  });
+
+  return {
+    ...data,
+    footpaths: {
+      stopIndices: Int32Array.from(data.stopIds.map((_, index) => index)),
+      offsets: Int32Array.from(offsets),
+      targetStopIndices: Int32Array.from(targetStopIndices),
+      durations: Uint16Array.from(durations),
+    },
+  };
 }
