@@ -1,5 +1,6 @@
 import { route, type EarliestArrivalQuery } from './core.js';
 import { loadTimetableFromManifestUrl, type LoadedTimetable } from './index.js';
+import { generateReachabilityPolygons } from './reachability.js';
 import { resolveServiceLayers } from './service-days.js';
 import {
   type RaptorWorkerRequest,
@@ -11,6 +12,7 @@ export interface RaptorWorkerServerDependencies {
   readonly load?: (manifestUrl: string) => Promise<LoadedTimetable>;
   readonly runRoute?: (data: LoadedTimetable, query: EarliestArrivalQuery) => ReturnType<typeof route>;
   readonly schedule?: (task: () => void) => void;
+  readonly generatePolygons?: typeof generateReachabilityPolygons;
 }
 
 export function attachRaptorWorkerServer(
@@ -20,6 +22,7 @@ export function attachRaptorWorkerServer(
   const load = dependencies.load ?? loadTimetableFromManifestUrl;
   const runRoute = dependencies.runRoute ?? route;
   const schedule = dependencies.schedule ?? ((task: () => void) => setTimeout(task, 0));
+  const generatePolygons = dependencies.generatePolygons ?? generateReachabilityPolygons;
   let data: LoadedTimetable | null = null;
   let loading = false;
   let latestQueryId: number | null = null;
@@ -83,6 +86,16 @@ export function attachRaptorWorkerServer(
             displayName,
           }),
         );
+        const departure = request.query.origins.reduce(
+          (earliest, origin) => Math.min(earliest, origin.departure),
+          Number.POSITIVE_INFINITY,
+        );
+        const polygons = generatePolygons(
+          data.stopLats,
+          data.stopLons,
+          result.arrival,
+          departure,
+        );
         port.postMessage(
           {
             type: 'result',
@@ -90,6 +103,7 @@ export function attachRaptorWorkerServer(
             arrival,
             rounds: result.rounds,
             serviceLayers,
+            polygons,
           },
           [arrival],
         );

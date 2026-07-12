@@ -1,5 +1,6 @@
 import { type EarliestArrivalQuery } from './core.js';
 import { type LoadedTimetableStats } from './index.js';
+import { type ReachabilityPolygonsResult } from './reachability.js';
 import { type ServiceDayType } from './service-days.js';
 
 export type RaptorWorkerRequest = LoadRequest | QueryRequest | CancelRequest;
@@ -45,6 +46,7 @@ export interface RouteResultResponse {
   readonly arrival: ArrayBuffer;
   readonly rounds: number;
   readonly serviceLayers: readonly WorkerServiceLayer[];
+  readonly polygons: ReachabilityPolygonsResult;
 }
 
 export interface WorkerServiceLayer {
