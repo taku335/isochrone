@@ -101,3 +101,84 @@ export interface StopNameGroup {
   readonly name: string;
   readonly stopIds: readonly PrefixedId[];
 }
+
+export interface BrowserDatasetFile {
+  readonly path: string;
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly gzipBytes: number;
+}
+
+export interface BrowserDatasetManifest {
+  readonly formatVersion: 1;
+  readonly agencyId: string;
+  readonly feedVersion: string;
+  readonly servicePeriod: BrowserDatasetServicePeriod;
+  readonly files: {
+    readonly stops: BrowserDatasetFile;
+    readonly timetable: BrowserDatasetFile;
+  };
+  readonly sizeGate: {
+    readonly limitBytes: number;
+    readonly dataGzipBytes: number;
+  };
+}
+
+export interface BrowserDatasetServicePeriod {
+  readonly startDate: string | null;
+  readonly endDate: string | null;
+}
+
+export interface BrowserStopsDataset {
+  readonly formatVersion: 1;
+  readonly agencyId: string;
+  readonly stops: {
+    readonly ids: readonly PrefixedId[];
+    readonly names: readonly string[];
+    readonly nameKanas: readonly (string | null)[];
+    readonly codes: readonly (string | null)[];
+    readonly lats: readonly number[];
+    readonly lons: readonly number[];
+  };
+  readonly footpaths: FootpathCsr;
+}
+
+export interface BrowserTimetableDataset {
+  readonly formatVersion: 1;
+  readonly agencyId: string;
+  readonly routes: {
+    readonly ids: readonly PrefixedId[];
+    readonly shortNames: readonly string[];
+    readonly longNames: readonly string[];
+    readonly types: readonly number[];
+  };
+  readonly patterns: {
+    readonly stopOffsets: readonly number[];
+    readonly stopIds: readonly PrefixedId[];
+    readonly tripOffsets: readonly number[];
+  };
+  readonly trips: {
+    readonly ids: readonly PrefixedId[];
+    readonly routeIds: readonly PrefixedId[];
+    readonly serviceIds: readonly PrefixedId[];
+    readonly timeOffsets: readonly number[];
+    readonly timeDeltas: readonly number[];
+  };
+  readonly stopPatternIndex: {
+    readonly stopOffsets: readonly number[];
+    readonly stopIds: readonly PrefixedId[];
+    readonly patternIndices: readonly number[];
+  };
+  readonly calendar: {
+    readonly serviceIds: readonly PrefixedId[];
+    readonly weekdayMasks: readonly number[];
+    readonly startDates: readonly string[];
+    readonly endDates: readonly string[];
+    readonly exceptions: {
+      readonly serviceIds: readonly PrefixedId[];
+      readonly dates: readonly string[];
+      readonly types: readonly (1 | 2)[];
+    };
+  };
+  readonly warnings: readonly string[];
+}
