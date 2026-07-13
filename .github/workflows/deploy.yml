@@ -47,6 +47,17 @@ jobs:
       - name: Download latest GTFS feed
         run: pnpm --filter @isochrone/pipeline cli download nagoya-cbus
 
+      - name: Verify approved feed version
+        shell: bash
+        run: |
+          set -euo pipefail
+          approved="$(jq -r '.feedVersion' config/feed-snapshots/nagoya-cbus.json)"
+          downloaded="$(jq -r '.lastModified' .cache/gtfs/nagoya-cbus/manifest.json)"
+          if [[ "$downloaded" != "$approved" ]]; then
+            echo "::error::CKAN feed $downloaded has not been approved (expected $approved)."
+            exit 1
+          fi
+
       - name: Validate browser dataset
         run: pnpm --filter @isochrone/pipeline cli validate nagoya-cbus
 

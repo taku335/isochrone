@@ -305,11 +305,15 @@ graph LR
 1. CKAN API で最新情報を取得:
    `GET https://data.bodik.jp/api/3/action/package_show?id=<agencies.json の packageId>`
    → 対象リソースの `url` と `last_modified` を読む
-2. `last_modified` が前回生成時(manifest.json に記録)より新しければ zip をダウンロード
+2. `last_modified` が承認済みスナップショット(`config/feed-snapshots/`)より新しければ zip をダウンロード
 3. pipeline 実行 → validate(#9)→ サイズゲート
-4. 生成データ + manifest 差分で PR を自動作成(タイトルに feed_version)
+4. feed_version、生成データの contenthash、検証統計をスナップショット PR として自動作成
 5. マージで deploy.yml が走り Pages に反映
 6. **ダイヤ改正時の注意**: golden numbers は改正で変わるため、validate は「参照整合性・単調性・件数レンジ」を必須、「厳密一致」はフィードバージョン固定のテストフィクスチャに対してのみ実施
+
+生成データ本体はコミットせず、PR で承認されたスナップショットから追跡可能な状態にする。
+deploy workflow は CKAN の最新版が承認済み feed_version と一致することを確認してから再生成し、
+contenthash 付きファイルを Pages artifact に含める。不一致なら未承認フィードの公開を防ぐため fail する。
 
 ---
 

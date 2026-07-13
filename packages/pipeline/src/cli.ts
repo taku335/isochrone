@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 
 import { type AgencyConfig, findAgency, findAgenciesConfigPath, loadAgenciesConfig } from './agencies.js';
 import { buildBrowserDatasetFiles, writeBrowserDataset } from './dataset.js';
-import { downloadGtfsZip, readDownloadManifest } from './downloader.js';
+import { checkGtfsUpdate, downloadGtfsZip, readDownloadManifest } from './downloader.js';
 import { buildFootpaths, DEFAULT_FOOTPATH_CONFIG, getFootpathStats } from './footpaths.js';
 import { getGtfsStats, parseGtfsZipFile } from './gtfs-parser.js';
 import { buildCompactTimetable, getCompactTimetableStats } from './patterns.js';
@@ -13,6 +13,7 @@ import { validateBrowserDataset } from './validation.js';
 export const PIPELINE_HELP = `Usage: docker compose run --rm pipeline <command> [options]
 
 Commands:
+  check-update <agency-id> Compare CKAN last_modified with an approved feed version
   download <agency-id>    Download and cache a GTFS-JP zip
   inspect <agency-id>     Parse the cached GTFS-JP zip and print counts
   compact <agency-id>     Build compact timetable stats from the cached zip
@@ -23,6 +24,7 @@ Commands:
 Options:
   --cache-dir <path>      Cache directory (default: .cache/gtfs)
   --config <path>         Agencies config path (default: config/agencies.json)
+  --current-version <v>   Approved feed version for check-update (default: none)
   --out-dir <path>        Dataset output directory (default: .cache/web-data/<agency-id>)
   --size-limit-bytes <n>  Dataset gzip size limit (default: 1500000)
   -h, --help              Show this help message
@@ -51,6 +53,16 @@ export async function runPipelineCli(
   const [command, ...rest] = args;
 
   try {
+    if (command === 'check-update') {
+      const options = parseCheckUpdateCommandArgs(rest);
+      const configPath = options.configPath ?? findAgenciesConfigPath();
+      const config = await loadAgenciesConfig(configPath);
+      const agency = findAgency(config, options.agencyId);
+      const result = await checkGtfsUpdate(agency, options.currentVersion ?? null);
+      write(JSON.stringify(result, null, 2));
+      return 0;
+    }
+
     if (command === 'download') {
       const options = parseAgencyCommandArgs(rest, 'download');
       const configPath = options.configPath ?? findAgenciesConfigPath();
@@ -157,6 +169,12 @@ interface AgencyCommandCliOptions {
   readonly configPath?: string;
 }
 
+interface CheckUpdateCliOptions {
+  readonly agencyId: string;
+  readonly configPath?: string;
+  readonly currentVersion?: string;
+}
+
 interface DatasetCommandCliOptions extends AgencyCommandCliOptions {
   readonly outDir?: string;
   readonly sizeLimitBytes?: number;
@@ -217,6 +235,37 @@ function parseAgencyCommandArgs(args: readonly string[], command: string): Agenc
     agencyId,
     ...(cacheDir === undefined ? {} : { cacheDir }),
     ...(configPath === undefined ? {} : { configPath }),
+  };
+}
+
+function parseCheckUpdateCommandArgs(args: readonly string[]): CheckUpdateCliOptions {
+  const [agencyId, ...rest] = args;
+  if (agencyId === undefined || agencyId.startsWith('-')) {
+    throw new Error('Usage error: check-update requires an agency id.');
+  }
+
+  let configPath: string | undefined;
+  let currentVersion: string | undefined;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    const value = rest[index + 1];
+
+    if (arg === '--config' && value !== undefined) {
+      configPath = value;
+      index += 1;
+    } else if (arg === '--current-version' && value !== undefined) {
+      currentVersion = value;
+      index += 1;
+    } else {
+      throw new Error(`Unknown check-update option: ${arg ?? ''}`);
+    }
+  }
+
+  return {
+    agencyId,
+    ...(configPath === undefined ? {} : { configPath }),
+    ...(currentVersion === undefined ? {} : { currentVersion }),
   };
 }
 

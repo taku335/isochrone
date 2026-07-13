@@ -1,0 +1,171 @@
+name: Check for GTFS updates
+
+on:
+  schedule:
+    - cron: '0 18 * * 0'
+  workflow_dispatch:
+    inputs:
+      rehearsal:
+        description: Create a do-not-merge rehearsal PR even when the feed is unchanged
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: data-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Check, validate, and propose GTFS update
+    runs-on: ubuntu-latest
+    env:
+      AGENCY_ID: nagoya-cbus
+      SNAPSHOT_PATH: config/feed-snapshots/nagoya-cbus.json
+      REHEARSAL: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearsal || false }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Restore GTFS cache
+        uses: actions/cache@v6
+        with:
+          path: .cache/gtfs
+          key: gtfs-${{ runner.os }}-${{ hashFiles('config/agencies.json') }}-${{ github.run_id }}
+          restore-keys: |
+            gtfs-${{ runner.os }}-${{ hashFiles('config/agencies.json') }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check CKAN last_modified
+        id: update
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/data-update
+          current_version="$(jq -r '.feedVersion' "$SNAPSHOT_PATH")"
+          if [[ "$REHEARSAL" == "true" ]]; then
+            current_version="rehearsal-$current_version"
+          fi
+          packages/pipeline/node_modules/.bin/tsx packages/pipeline/src/cli.ts check-update "$AGENCY_ID" \
+            --current-version "$current_version" > .cache/data-update/status.json
+          cat .cache/data-update/status.json
+          echo "available=$(jq -r '.updateAvailable' .cache/data-update/status.json)" >> "$GITHUB_OUTPUT"
+          echo "feed_version=$(jq -r '.remote.lastModified' .cache/data-update/status.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Download latest GTFS feed
+        if: steps.update.outputs.available == 'true'
+        run: packages/pipeline/node_modules/.bin/tsx packages/pipeline/src/cli.ts download "$AGENCY_ID"
+
+      - name: Validate browser dataset
+        if: steps.update.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages/pipeline/node_modules/.bin/tsx packages/pipeline/src/cli.ts validate "$AGENCY_ID" \
+            > .cache/data-update/validation.json
+          cat .cache/data-update/validation.json
+
+      - name: Enforce dataset size gate
+        if: steps.update.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages/pipeline/node_modules/.bin/tsx packages/pipeline/src/cli.ts dataset "$AGENCY_ID" \
+            --out-dir .cache/data-update/dataset > .cache/data-update/dataset.json
+          cat .cache/data-update/dataset.json
+
+      - name: Build review snapshot and summary
+        if: steps.update.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq --slurpfile validation .cache/data-update/validation.json '{
+            agencyId,
+            feedVersion,
+            servicePeriod,
+            files: {
+              stops: (.files.stops | {path, sha256, bytes}),
+              timetable: (.files.timetable | {path, sha256, bytes})
+            },
+            sizeGate: {limitBytes: .sizeGate.limitBytes},
+            validationStats: $validation[0].stats
+          }' .cache/data-update/dataset/manifest.json > "$SNAPSHOT_PATH.tmp"
+          if [[ "$REHEARSAL" == "true" ]]; then
+            jq --arg run_id "$GITHUB_RUN_ID" '. + {rehearsalRunId: $run_id}' \
+              "$SNAPSHOT_PATH.tmp" > "$SNAPSHOT_PATH"
+          else
+            mv "$SNAPSHOT_PATH.tmp" "$SNAPSHOT_PATH"
+          fi
+
+          {
+            if [[ "$REHEARSAL" == "true" ]]; then
+              echo '**Rehearsal only: do not merge this pull request.**'
+              echo
+            fi
+            echo '## Feed update'
+            echo
+            echo "- Agency: \`$AGENCY_ID\`"
+            echo "- feed_version: \`${{ steps.update.outputs.feed_version }}\`"
+            echo '- Validation: passed'
+            echo '- Dataset size gate: passed'
+            echo
+            echo '## Validation statistics'
+            echo
+            echo '| Metric | Value |'
+            echo '| --- | ---: |'
+            jq -r '.stats | to_entries[] | "| \(.key) | \(.value) |"' \
+              .cache/data-update/validation.json
+            echo
+            echo 'Merging an actual update triggers the GitHub Pages deployment workflow.'
+          } > .cache/data-update/pr-body.md
+
+      - name: Create or update feed pull request
+        if: steps.update.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEED_VERSION: ${{ steps.update.outputs.feed_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='automation/data-nagoya-cbus'
+          title="[data] Update Nagoya City Bus feed to $FEED_VERSION"
+          if [[ "$REHEARSAL" == "true" ]]; then
+            branch='automation/data-nagoya-cbus-rehearsal'
+            title="[data rehearsal] Nagoya City Bus feed $FEED_VERSION"
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$branch"
+          git add "$SNAPSHOT_PATH"
+          git commit -m "Update $AGENCY_ID feed to $FEED_VERSION"
+          git push --force origin "$branch"
+
+          pr_number="$(gh pr list --base main --head "$branch" --state open \
+            --json number --jq '.[0].number // empty')"
+          if [[ -z "$pr_number" ]]; then
+            gh pr create --base main --head "$branch" --title "$title" \
+              --body-file .cache/data-update/pr-body.md
+          else
+            gh pr edit "$pr_number" --title "$title" --body-file .cache/data-update/pr-body.md
+          fi
