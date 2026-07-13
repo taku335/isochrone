@@ -47,3 +47,21 @@ pnpm --filter @isochrone/pipeline cli validate nagoya-cbus
 pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus --out-dir ../../apps/web/public/data
 VITE_BASE_PATH=/isochrone/ pnpm --filter @isochrone/web build
 ```
+
+## GTFS update review
+
+`.github/workflows/data-update.yml` checks CKAN every Monday at 03:00 JST. It compares the remote
+`last_modified` value with `config/feed-snapshots/nagoya-cbus.json`. When the feed changes, the
+workflow downloads it, runs dataset validation and the size gate, then opens or updates a pull
+request containing the approved feed version, content hashes, and validation statistics.
+
+Generated browser JSON remains outside Git. Merging the snapshot pull request records the reviewed
+version and triggers `deploy.yml`, which requires CKAN to match that version before regenerating the
+same content-hashed files. This prevents an unrelated deployment from publishing an unreviewed feed.
+A failed CKAN lookup, validation, or size gate fails the scheduled workflow before a pull request is
+created.
+
+For an end-to-end rehearsal, manually run `Check for GTFS updates` with `rehearsal` enabled. This
+uses a deliberately stale comparison version and creates a clearly marked do-not-merge pull
+request. Verify its statistics, then close it without merging. A normal manual run exercises the
+no-update path and must finish successfully without creating a pull request.

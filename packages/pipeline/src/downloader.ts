@@ -28,11 +28,33 @@ export interface DownloadResult {
   readonly manifest: DownloadManifest;
 }
 
+export interface GtfsUpdateCheck {
+  readonly updateAvailable: boolean;
+  readonly currentLastModified: string | null;
+  readonly remote: CkanResource;
+}
+
 export interface DownloadOptions {
   readonly agency: AgencyConfig;
   readonly cacheDir: string;
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => Date;
+}
+
+export async function checkGtfsUpdate(
+  agency: AgencyConfig,
+  currentLastModified: string | null,
+  fetchImpl: typeof fetch = fetch,
+): Promise<GtfsUpdateCheck> {
+  const remote = await resolveCkanResource(agency, fetchImpl);
+  return {
+    updateAvailable: isUpdateAvailable(
+      remote.lastModified,
+      currentLastModified === null ? null : { lastModified: currentLastModified },
+    ),
+    currentLastModified,
+    remote,
+  };
 }
 
 interface CkanPackageResponse {
