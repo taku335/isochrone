@@ -4,9 +4,15 @@ export interface StopSearchUiOptions {
   readonly root: HTMLElement;
   readonly groups: readonly StopGroup[];
   readonly onSelect: (group: StopGroup) => void;
+  readonly onClear?: () => void;
 }
 
-export function initializeStopSearchUi(options: StopSearchUiOptions): () => void {
+export interface StopSearchUiController {
+  readonly select: (group: StopGroup) => void;
+  readonly dispose: () => void;
+}
+
+export function initializeStopSearchUi(options: StopSearchUiOptions): StopSearchUiController {
   const input = options.root.querySelector<HTMLInputElement>('.stop-search-input');
   const clearButton = options.root.querySelector<HTMLButtonElement>('.stop-search-clear');
   const resultsElement = options.root.querySelector<HTMLDivElement>('.stop-search-results');
@@ -17,6 +23,7 @@ export function initializeStopSearchUi(options: StopSearchUiOptions): () => void
 
   let results: readonly StopGroup[] = [];
   let activeIndex = -1;
+  let hasSelection = false;
 
   const select = (group: StopGroup): void => {
     input.value = group.name;
@@ -26,6 +33,7 @@ export function initializeStopSearchUi(options: StopSearchUiOptions): () => void
     renderResults();
     selectionElement.hidden = false;
     selectionElement.textContent = `${String(group.stopIndices.length)}のりばを出発地に設定`;
+    hasSelection = true;
     options.onSelect(group);
   };
 
@@ -59,6 +67,10 @@ export function initializeStopSearchUi(options: StopSearchUiOptions): () => void
   };
 
   const updateResults = (): void => {
+    if (hasSelection) {
+      hasSelection = false;
+      options.onClear?.();
+    }
     results = searchStopGroups(options.groups, input.value);
     activeIndex = results.length === 0 ? -1 : 0;
     clearButton.hidden = input.value.length === 0;
@@ -97,6 +109,10 @@ export function initializeStopSearchUi(options: StopSearchUiOptions): () => void
     selectionElement.hidden = true;
     results = [];
     activeIndex = -1;
+    if (hasSelection) {
+      hasSelection = false;
+      options.onClear?.();
+    }
     renderResults();
     input.focus();
   };
@@ -105,10 +121,13 @@ export function initializeStopSearchUi(options: StopSearchUiOptions): () => void
   input.addEventListener('input', updateResults);
   input.addEventListener('keydown', handleKeydown);
   clearButton.addEventListener('click', clear);
-  return () => {
-    input.removeEventListener('input', updateResults);
-    input.removeEventListener('keydown', handleKeydown);
-    clearButton.removeEventListener('click', clear);
+  return {
+    select,
+    dispose: () => {
+      input.removeEventListener('input', updateResults);
+      input.removeEventListener('keydown', handleKeydown);
+      clearButton.removeEventListener('click', clear);
+    },
   };
 }
 
