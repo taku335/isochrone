@@ -14,9 +14,14 @@ export function resolveDatasetManifestUrl(
   environment: Readonly<Record<string, string | undefined>> = import.meta.env,
 ): string {
   const configuredUrl = environment.VITE_DATASET_MANIFEST_URL?.trim();
-  return configuredUrl === undefined || configuredUrl.length === 0
-    ? DEFAULT_DATASET_MANIFEST_URL
-    : configuredUrl;
+  if (configuredUrl !== undefined && configuredUrl.length > 0) {
+    return configuredUrl;
+  }
+  const baseUrl = environment.BASE_URL?.trim();
+  if (baseUrl === undefined || baseUrl.length === 0 || baseUrl === '/') {
+    return DEFAULT_DATASET_MANIFEST_URL;
+  }
+  return `${baseUrl.replace(/\/+$/, '')}/data/manifest.json`;
 }
 
 export async function loadStopDataset(

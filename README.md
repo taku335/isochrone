@@ -26,3 +26,24 @@ output through Vite's workspace file serving:
 VITE_DATASET_MANIFEST_URL=/@fs/absolute/path/to/.cache/web-data/nagoya-cbus/manifest.json \
   pnpm --filter @isochrone/web dev
 ```
+
+## GitHub Pages deployment
+
+Pushing `main` runs `.github/workflows/deploy.yml`. The workflow restores the latest cached GTFS
+zip, checks BODIK for an updated resource, validates it, and generates a fresh browser dataset in
+`apps/web/public/data` before building and deploying the Pages artifact. Generated data is not
+committed: rebuilding it from the cached source zip keeps the repository small while validation and
+the feed version make each deployment traceable.
+
+`actions/configure-pages` supplies the repository base path to Vite through `VITE_BASE_PATH`, so
+assets and the default dataset manifest resolve under `/isochrone/`. For a custom domain, the same
+setting becomes `/`; no application paths need to change.
+
+Run the equivalent production build locally with:
+
+```sh
+pnpm --filter @isochrone/pipeline cli download nagoya-cbus
+pnpm --filter @isochrone/pipeline cli validate nagoya-cbus
+pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus --out-dir ../../apps/web/public/data
+VITE_BASE_PATH=/isochrone/ pnpm --filter @isochrone/web build
+```

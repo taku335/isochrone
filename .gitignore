@@ -3,6 +3,7 @@ dist/
 coverage/
 .vitest/
 .cache/
+apps/web/public/data/
 *.tsbuildinfo
 .DS_Store
 *.log
