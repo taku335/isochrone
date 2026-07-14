@@ -1,67 +1,143 @@
 # Isochrone
 
-## Web map configuration
+Isochrone is a static web map that shows the areas reachable within 30 or 60 minutes from a
+Nagoya City Bus stop. It runs pattern-based RAPTOR and polygon generation in the browser, so the
+deployed application does not require an application server.
 
-The web app uses MapLibre GL JS with OpenFreeMap's Liberty style. Override the
-style without changing application code by setting `VITE_MAP_STYLE_URL`:
+Public application: [https://taku335.github.io/isochrone/](https://taku335.github.io/isochrone/)
+
+![Isochrone web map](docs/assets/isochrone-map.png)
+
+The Phase 1 scope is Nagoya City Bus only. Subway, railway, other bus operators, live delays, and
+service disruptions are not included. Results are estimates derived from the published timetable.
+
+## Features
+
+- Search Nagoya City Bus stops by name or kana and group poles with the same stop name.
+- Select a service date and departure time while correctly handling GTFS trips whose source times
+  extend past 24:00.
+- Run one-to-all earliest-arrival RAPTOR in a Web Worker.
+- Draw 30-minute and 60-minute reachable polygons with walking transfers.
+- Share the selected stop, date, time, and debug view in the URL.
+- Display the source feed version, validity period, service-day layers, and CC BY 4.0 attribution.
+
+## Requirements
+
+- Node.js 22, as specified by `.nvmrc`
+- pnpm 10.13.1, as specified by `packageManager`
+- Git
+
+Docker Desktop or another Docker Compose implementation can replace the local Node and pnpm
+requirements.
+
+## Local development with pnpm
+
+From a clean clone:
 
 ```sh
-VITE_MAP_STYLE_URL=https://maps.example.com/style.json pnpm --filter @isochrone/web dev
-```
-
-The configured style must include the required OpenMapTiles and OpenStreetMap
-attribution. OpenFreeMap's hosted styles provide it automatically.
-
-If the hosted tile provider changes, generate or obtain an OpenMapTiles-compatible
-PMTiles archive, host the archive and style assets on static storage, add the
-MapLibre PMTiles protocol adapter, and point `VITE_MAP_STYLE_URL` at the self-hosted
-style. Application map layers should continue to depend on MapLibre source and
-layer APIs rather than provider-specific URLs.
-
-Set `VITE_DATASET_MANIFEST_URL` when the generated browser dataset is not served
-at `/data/manifest.json`. During local development, it can point at the pipeline
-output through Vite's workspace file serving:
-
-```sh
-VITE_DATASET_MANIFEST_URL=/@fs/absolute/path/to/.cache/web-data/nagoya-cbus/manifest.json \
+git clone https://github.com/taku335/isochrone.git
+cd isochrone
+corepack enable
+corepack prepare pnpm@10.13.1 --activate
+pnpm install --frozen-lockfile
+pnpm --filter @isochrone/pipeline cli download nagoya-cbus
+pnpm --filter @isochrone/pipeline cli validate nagoya-cbus
+pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus
+VITE_DATASET_MANIFEST_URL="/@fs$PWD/.cache/web-data/nagoya-cbus/manifest.json" \
   pnpm --filter @isochrone/web dev
 ```
 
-## GitHub Pages deployment
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). Stop the server with `Ctrl-C`.
 
-Pushing `main` runs `.github/workflows/deploy.yml`. The workflow restores the latest cached GTFS
-zip, checks BODIK for an updated resource, validates it, and generates a fresh browser dataset in
-`apps/web/public/data` before building and deploying the Pages artifact. Generated data is not
-committed: rebuilding it from the cached source zip keeps the repository small while validation and
-the feed version make each deployment traceable.
+Run the repository checks with:
 
-`actions/configure-pages` supplies the repository base path to Vite through `VITE_BASE_PATH`, so
-assets and the default dataset manifest resolve under `/isochrone/`. For a custom domain, the same
-setting becomes `/`; no application paths need to change.
+```sh
+pnpm lint
+pnpm typecheck
+pnpm test
+```
 
-Run the equivalent production build locally with:
+## Local development with Docker
+
+The Docker path writes generated data into the Vite public directory, which is ignored by Git:
+
+```sh
+git clone https://github.com/taku335/isochrone.git
+cd isochrone
+docker compose build
+docker compose run --rm pipeline download nagoya-cbus
+docker compose run --rm pipeline validate nagoya-cbus
+docker compose run --rm pipeline dataset nagoya-cbus \
+  --out-dir ../../apps/web/public/data
+docker compose up web-dev
+```
+
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). Use `docker compose down` when finished.
+
+## Production build
+
+Generate the deploy data and build with the repository base path:
 
 ```sh
 pnpm --filter @isochrone/pipeline cli download nagoya-cbus
 pnpm --filter @isochrone/pipeline cli validate nagoya-cbus
-pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus --out-dir ../../apps/web/public/data
+pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus \
+  --out-dir ../../apps/web/public/data
 VITE_BASE_PATH=/isochrone/ pnpm --filter @isochrone/web build
 ```
 
-## GTFS update review
+The output is in `apps/web/dist`. `.github/workflows/deploy.yml` performs the same process on each
+push to `main`, verifies that CKAN matches the approved feed snapshot, and deploys the artifact to
+GitHub Pages.
 
-`.github/workflows/data-update.yml` checks CKAN every Monday at 03:00 JST. It compares the remote
-`last_modified` value with `config/feed-snapshots/nagoya-cbus.json`. When the feed changes, the
-workflow downloads it, runs dataset validation and the size gate, then opens or updates a pull
-request containing the approved feed version, content hashes, and validation statistics.
+## Architecture
 
-Generated browser JSON remains outside Git. Merging the snapshot pull request records the reviewed
-version and triggers `deploy.yml`, which requires CKAN to match that version before regenerating the
-same content-hashed files. This prevents an unrelated deployment from publishing an unreviewed feed.
-A failed CKAN lookup, validation, or size gate fails the scheduled workflow before a pull request is
-created.
+```mermaid
+flowchart LR
+  CKAN[BODIK CKAN / GTFS-JP] --> Pipeline[packages/pipeline]
+  Pipeline --> Snapshot[approved feed snapshot]
+  Pipeline --> Dataset[content-hashed browser JSON]
+  Dataset --> Web[apps/web / Vite]
+  Snapshot --> Deploy[GitHub Actions deploy]
+  Deploy --> Pages[GitHub Pages]
+  Web --> Pages
+  Dataset --> Loader[packages/raptor loader]
+  Loader --> Worker[RAPTOR + polygon Web Worker]
+  Worker --> Map[MapLibre reachability layers]
+```
 
-For an end-to-end rehearsal, manually run `Check for GTFS updates` with `rehearsal` enabled. This
-uses a deliberately stale comparison version and creates a clearly marked do-not-merge pull
-request. Verify its statistics, then close it without merging. A normal manual run exercises the
-no-update path and must finish successfully without creating a pull request.
+| Path | Responsibility |
+| --- | --- |
+| `packages/gtfs-types` | Shared browser dataset types |
+| `packages/pipeline` | CKAN download, GTFS parsing, compaction, validation, and dataset output |
+| `packages/raptor` | Dataset loader, service-day layers, RAPTOR, walking transfers, and polygons |
+| `apps/web` | Vite application, stop search, URL state, MapLibre rendering, and worker entry point |
+| `config` | Agency configuration, smoke cases, and approved feed snapshots |
+| `.github/workflows` | CI, Pages deployment, and weekly feed update review |
+
+The browser dataset uses compact structure-of-arrays JSON. `manifest.json` points to immutable
+`stops-<contenthash>.json` and `timetable-<contenthash>.json` files. The pipeline enforces a 1.5 MB
+combined gzip limit.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VITE_DATASET_MANIFEST_URL` | `<base>/data/manifest.json` | Override the browser dataset manifest |
+| `VITE_MAP_STYLE_URL` | OpenFreeMap Liberty | Replace the MapLibre style |
+| `VITE_BASE_PATH` | `/` | Set the Vite deployment base, such as `/isochrone/` |
+
+The configured map style must provide the required OpenMapTiles and OpenStreetMap attribution.
+
+## Operations and future work
+
+- [Operations runbook](docs/OPERATIONS.md): automatic and manual feed updates, timetable revision
+  review, rollback, deployment checks, and the PMTiles migration path.
+- [Phase 2 design](docs/PHASE2.md): the implementation plan for reverse RAPTOR and latest-departure
+  search.
+- [Development plan](docs/PLAN.md): constraints, data format, milestones, and design history.
+
+## Data attribution
+
+The application uses [Nagoya City Transportation Bureau City Bus GTFS-JP data](https://data.bodik.jp/dataset/231002_7109030000_bus-gtfs-jp)
+under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en).
