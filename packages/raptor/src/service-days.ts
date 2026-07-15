@@ -4,16 +4,24 @@ import { type LoadedCalendar } from './index.js';
 
 export interface ServiceLayer {
   readonly date: string;
-  readonly minuteOffset: 0 | 1440;
+  readonly minuteOffset: ServiceMinuteOffset;
   readonly serviceIndices: Int32Array;
   readonly serviceIds: readonly PrefixedId[];
   readonly dayType: ServiceDayType;
   readonly displayName: string;
 }
 
+export type ServiceMinuteOffset = -1440 | 0 | 1440;
 export type ServiceDayType = 'weekday' | 'saturday' | 'sunday_holiday' | 'custom' | 'none';
 
 export function resolveServiceLayers(calendar: LoadedCalendar, date: string): readonly [ServiceLayer, ServiceLayer] {
+  return resolveForwardServiceLayers(calendar, date);
+}
+
+export function resolveForwardServiceLayers(
+  calendar: LoadedCalendar,
+  date: string,
+): readonly [ServiceLayer, ServiceLayer] {
   assertDateInFeedPeriod(calendar, date);
   const previousDate = addDays(date, -1);
 
@@ -25,10 +33,25 @@ export function resolveServiceLayers(calendar: LoadedCalendar, date: string): re
   ];
 }
 
+export function resolveReverseServiceLayers(
+  calendar: LoadedCalendar,
+  date: string,
+): readonly [ServiceLayer, ServiceLayer] {
+  assertDateInFeedPeriod(calendar, date);
+  const nextDate = addDays(date, 1);
+
+  return [
+    resolveServiceLayer(calendar, date, 0),
+    isDateInFeedPeriod(calendar, nextDate)
+      ? resolveServiceLayer(calendar, nextDate, -1440)
+      : emptyServiceLayer(nextDate, -1440),
+  ];
+}
+
 export function resolveServiceLayer(
   calendar: LoadedCalendar,
   date: string,
-  minuteOffset: 0 | 1440 = 0,
+  minuteOffset: ServiceMinuteOffset = 0,
 ): ServiceLayer {
   const active = new Set<number>();
   const weekdayBit = getWeekdayBit(date);
@@ -73,7 +96,7 @@ export function resolveServiceLayer(
 function toServiceLayer(
   calendar: LoadedCalendar,
   date: string,
-  minuteOffset: 0 | 1440,
+  minuteOffset: ServiceMinuteOffset,
   serviceIndices: readonly number[],
 ): ServiceLayer {
   const serviceIds = serviceIndices.map((index) => {
@@ -96,7 +119,7 @@ function toServiceLayer(
   };
 }
 
-function emptyServiceLayer(date: string, minuteOffset: 0 | 1440): ServiceLayer {
+function emptyServiceLayer(date: string, minuteOffset: ServiceMinuteOffset): ServiceLayer {
   return {
     date,
     minuteOffset,

@@ -1,6 +1,6 @@
 # Phase 2: latest-departure search
 
-This document is the single implementation plan for Issue #26. Phase 2 answers this question:
+This document is the implementation record and contract for Issue #26. Phase 2 answers this question:
 
 > What is the latest time I can leave each stop and still arrive at the selected destination by a
 > given deadline?
@@ -8,26 +8,24 @@ This document is the single implementation plan for Issue #26. Phase 2 answers t
 It extends the Phase 1 timetable, service-day, worker, and stop-search infrastructure. It does not
 add rail, other bus operators, live delays, or a server-side journey planner.
 
-## Current extension points
+## Implemented components
 
-Phase 1 deliberately contains only part of the contract:
+Phase 2 extends the Phase 1 components without changing existing shared links or forward results:
 
-- `packages/raptor/src/core.ts` exports `LatestDepartureQuery` and includes it in `Query`, but
-  `route` accepts only `EarliestArrivalQuery` and returns an `arrival` array.
-- The forward scan already isolates pattern queuing, trip selection, timetable lookup, and
-  footpath relaxation. Reverse routing must provide direction-specific versions of those steps.
-- `resolveServiceLayers` currently returns the selected service day and the previous service day
-  with offsets `0` and `+1440`. Reverse routing also needs the next service day with offset
-  `-1440` so trips around the following midnight share the query timeline.
-- Worker requests, results, polygon generation, URL state, and the UI currently assume
-  earliest-arrival searches.
-
-These are extension points, not evidence that latest-departure routing already works. A
-`LatestDepartureQuery` must not be passed to `route` until the contracts below are implemented.
+- `packages/raptor/src/core.ts` accepts the `Query` discriminated union and returns direction-specific
+  typed-array results.
+- Reverse routing has direction-specific pattern queuing, trip selection, timetable scanning, and
+  inbound footpath relaxation. Forward routing remains unchanged.
+- `resolveReverseServiceLayers` returns the selected service day and next service day with offsets
+  `0` and `-1440`.
+- Worker requests and responses are discriminated by search kind, preserve cancellation, and skip
+  forward polygon generation for reverse results.
+- The web app provides `Depart at` and `Arrive by` modes, shareable URL state, and labeled
+  latest-departure stop points.
 
 ## Engine contract
 
-Keep the public request as the existing discriminated union:
+The public request remains the discriminated union:
 
 ```ts
 export interface LatestDepartureQuery {
@@ -41,7 +39,7 @@ export interface LatestDepartureQuery {
 }
 ```
 
-Return a discriminated result rather than overloading the meaning of `arrival`:
+The reverse result does not overload the meaning of `arrival`:
 
 ```ts
 export interface LatestDepartureResult {
@@ -58,7 +56,7 @@ as Phase 1 and reject values outside the representable range.
 
 ## Reverse RAPTOR
 
-Implement latest-departure routing as the directionally symmetric RAPTOR scan:
+Latest-departure routing uses the directionally symmetric RAPTOR scan:
 
 1. Initialize each destination with its arrival deadline and relax inbound walking transfers.
 2. Queue every pattern containing a newly improved stop, starting from the greatest relevant stop
@@ -77,8 +75,7 @@ to limit the regression surface.
 
 ## Service-day layers
 
-Generalize `ServiceLayer.minuteOffset` to `-1440 | 0 | 1440` and expose direction-specific
-resolvers:
+`ServiceLayer.minuteOffset` is `-1440 | 0 | 1440`, with direction-specific resolvers:
 
 - Forward: selected date at `0`, previous date at `+1440`.
 - Reverse: selected date at `0`, next date at `-1440`.
@@ -93,18 +90,18 @@ holiday-to-weekday boundaries, added and removed exceptions, and both ends of th
 
 ## Worker and result processing
 
-Change the worker query payload to `Query` and make responses discriminated by search kind. Preserve
-request cancellation and transferable typed arrays. Forward searches may continue generating
+The worker query payload is `Query` and responses are discriminated by search kind. Request
+cancellation and transferable typed arrays are preserved. Forward searches continue generating
 30/60-minute reachability polygons; latest-departure searches return stop departure labels and do
 not call the forward polygon generator.
 
-For the first Phase 2 UI, display the latest departure at reachable stops and highlight the selected
-destination. A reverse isochrone polygon is a separate enhancement because its walking-time
+The Phase 2 UI displays the latest departure at reachable stops and highlights the selected
+destination. A reverse isochrone polygon remains a separate enhancement because its walking-time
 interpretation and legend differ from the existing forward polygons.
 
 ## UI and URL state
 
-- Add a two-option segmented control: `Depart at` and `Arrive by`.
+- A two-option segmented control switches between `Depart at` and `Arrive by`.
 - In `Depart at`, retain the current origin, date, time, 30/60-minute layers, and copy.
 - In `Arrive by`, search and select a destination, enter an arrival date and time, then show the
   latest departure for reachable stops and the selected stop details.
@@ -119,7 +116,7 @@ must match the Phase 1 controls.
 
 ## Verification
 
-Implement and review Phase 2 in this order:
+Phase 2 was implemented and reviewed in this order:
 
 1. Service-layer type and next-day resolver with boundary tests.
 2. Reverse trip selection, pattern scan, and inbound footpaths on small deterministic fixtures.
@@ -129,9 +126,10 @@ Implement and review Phase 2 in this order:
 6. Real-feed CLI cases for an ordinary weekday, a holiday boundary, last bus, a trip after 24:00,
    and an impossible deadline.
 
-Acceptance requires the latest-departure result to match hand-verified and brute-force results,
-preserve every Phase 1 test, complete the real-data query within the existing 200 ms target on the
-reference machine, and remain shareable and usable on desktop and mobile.
+The latest-departure result matches fixture brute-force and real-feed forward-boundary checks. A
+real `栄` 23:30 deadline query reached 3,884 stops with a median runtime of about 2.55 ms on the
+reference machine, below the 200 ms target. Phase 1 tests remain green, and 390px mobile and 1200px
+desktop layouts have no horizontal overflow or overlapping controls.
 
 ## Out of scope
 

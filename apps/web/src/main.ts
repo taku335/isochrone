@@ -6,10 +6,12 @@ import {
 } from './about.js';
 import {
   buildReachableStopCollection,
+  buildLatestDepartureStopCollection,
   countReachableStops,
   formatServiceLayers,
   getDefaultDeparture,
   parseDeparture,
+  parseArrival,
 } from './departure-search.js';
 import { resolveMapConfig } from './map-config.js';
 import { createMap } from './map.js';
@@ -28,12 +30,14 @@ import {
   initializeReachabilityLayers,
   REACHABILITY_COLORS,
   updateReachabilityLayers,
+  updateLatestDepartureLayer,
 } from './reachability-map.js';
 import {
   hasRunnableUrlState,
   readAppUrlState,
   writeAppUrlState,
   type ReachabilityView,
+  type SearchMode,
 } from './url-state.js';
 import { type BrowserStopsDataset } from '@isochrone/gtfs-types';
 import { Marker } from 'maplibre-gl';
@@ -64,7 +68,11 @@ app.innerHTML = `
     <div class="map-stage">
       <div id="map" class="map" aria-label="名古屋市の地図"></div>
       <section class="stop-search-panel" aria-label="出発停留所">
-        <label class="stop-search-label" for="stop-search">出発停留所</label>
+        <div class="search-mode" role="group" aria-label="探索方法">
+          <button type="button" data-search-mode="depart" aria-pressed="true">出発時刻から</button>
+          <button type="button" data-search-mode="arrive" aria-pressed="false">到着時刻まで</button>
+        </div>
+        <label class="stop-search-label" for="stop-search"><span class="stop-role-label">出発停留所</span></label>
         <div class="stop-search-field">
           <input
             id="stop-search"
@@ -96,11 +104,11 @@ app.innerHTML = `
         <div class="departure-controls">
           <div class="departure-fields">
             <label>
-              <span>出発日</span>
+              <span class="date-role-label">出発日</span>
               <input class="departure-date" type="date" />
             </label>
             <label>
-              <span>出発時刻</span>
+              <span class="time-role-label">出発時刻</span>
               <input class="departure-time" type="time" step="60" />
             </label>
           </div>
@@ -114,7 +122,11 @@ app.innerHTML = `
           <div class="reachability-legend" hidden aria-label="到達時間の凡例">
             <span><i data-layer="30"></i>30分圏</span>
             <span><i data-layer="60"></i>60分圏</span>
-            <span><i data-layer="origin"></i>出発地</span>
+            <span><i data-layer="origin"></i><span class="marker-role-label">出発地</span></span>
+          </div>
+          <div class="latest-departure-legend" hidden aria-label="最遅出発時刻の凡例">
+            <span><i></i>出発可能な停留所</span>
+            <span>地図を拡大すると最遅出発時刻を表示</span>
           </div>
         </div>
       </section>
@@ -162,6 +174,10 @@ const loadFeedback = requireElement(document.querySelector<HTMLElement>('.data-l
 const loadProgress = requireElement(document.querySelector<HTMLProgressElement>('.data-load-progress'), '.data-load-progress');
 const dataRetryButton = requireElement(document.querySelector<HTMLButtonElement>('.data-retry'), '.data-retry');
 
+const modeButtons = document.querySelectorAll<HTMLButtonElement>('[data-search-mode]');
+const stopRoleLabel = requireElement(document.querySelector<HTMLElement>('.stop-role-label'), '.stop-role-label');
+const dateRoleLabel = requireElement(document.querySelector<HTMLElement>('.date-role-label'), '.date-role-label');
+const timeRoleLabel = requireElement(document.querySelector<HTMLElement>('.time-role-label'), '.time-role-label');
 const dateInput = requireElement(document.querySelector<HTMLInputElement>('.departure-date'), '.departure-date');
 const timeInput = requireElement(document.querySelector<HTMLInputElement>('.departure-time'), '.departure-time');
 const lateNightNote = requireElement(document.querySelector<HTMLParagraphElement>('.late-night-note'), '.late-night-note');
@@ -169,6 +185,10 @@ const runButton = requireElement(document.querySelector<HTMLButtonElement>('.run
 const routeStatus = requireElement(document.querySelector<HTMLParagraphElement>('.route-status'), '.route-status');
 const serviceDay = requireElement(document.querySelector<HTMLParagraphElement>('.service-day'), '.service-day');
 const legend = requireElement(document.querySelector<HTMLElement>('.reachability-legend'), '.reachability-legend');
+const latestDepartureLegend = requireElement(
+  document.querySelector<HTMLElement>('.latest-departure-legend'),
+  '.latest-departure-legend',
+);
 const datasetSummaries = document.querySelectorAll<HTMLElement>(
   '.dataset-summary, .about-dataset-summary',
 );
@@ -186,6 +206,7 @@ aboutClose.addEventListener('click', () => {
 
 const pageUrl = new URL(window.location.href);
 const initialUrlState = readAppUrlState(pageUrl);
+let searchMode: SearchMode = initialUrlState.mode;
 const defaults = getDefaultDeparture();
 dateInput.value = initialUrlState.date ?? defaults.date;
 timeInput.value = initialUrlState.time ?? defaults.time;
@@ -194,6 +215,7 @@ const showReachableStopDots = reachabilityView === 'stops';
 document.documentElement.style.setProperty('--reachability-30', REACHABILITY_COLORS[30]);
 document.documentElement.style.setProperty('--reachability-60', REACHABILITY_COLORS[60]);
 document.documentElement.style.setProperty('--origin-color', REACHABILITY_COLORS.origin);
+document.documentElement.style.setProperty('--latest-departure-color', REACHABILITY_COLORS.latestDeparture);
 
 const manifestUrl = resolveDatasetManifestUrl();
 const absoluteManifestUrl = new URL(manifestUrl, window.location.href).href;
@@ -203,7 +225,9 @@ const raptorClient = createRaptorWorkerClient({
       searchLoading.textContent = '時刻表データを展開しています';
     } else {
       routeStatus.dataset.state = 'loading';
-      routeStatus.textContent = '到達範囲を計算しています';
+      routeStatus.textContent = searchMode === 'depart'
+        ? '到達範囲を計算しています'
+        : '最遅出発時刻を計算しています';
     }
   },
 });
@@ -213,44 +237,71 @@ let routeRunning = false;
 let dataLoadRunning = false;
 let stopSearchUi: StopSearchUiController | null = null;
 let stopGroups: readonly StopGroup[] = [];
-let selectedOriginName: string | null = null;
+let selectedStopName: string | null = null;
+let selectedStopGroup: StopGroup | null = null;
 let autoRunPending = hasRunnableUrlState(initialUrlState);
 let urlRestoreAttempted = false;
 
-let selectedOriginStopIndices: readonly number[] = [];
+let selectedStopIndices: readonly number[] = [];
 let stopMarker: Marker | null = null;
 const selectStopGroup = (group: StopGroup): void => {
-  selectedOriginName = group.name;
-  selectedOriginStopIndices = group.stopIndices;
-  searchPanel.dataset.originCount = String(selectedOriginStopIndices.length);
-  stopMarker?.remove();
-  stopMarker = new Marker({ color: '#d9473d' })
-    .setLngLat([group.center[0], group.center[1]])
-    .addTo(map);
+  selectedStopName = group.name;
+  selectedStopGroup = group;
+  selectedStopIndices = group.stopIndices;
+  searchPanel.dataset.selectionCount = String(selectedStopIndices.length);
+  renderStopMarker();
   map.easeTo({ center: [group.center[0], group.center[1]], zoom: 14.5, duration: 700 });
   clearReachabilityLayers(map);
   legend.hidden = true;
+  latestDepartureLegend.hidden = true;
   serviceDay.hidden = true;
   delete routeStatus.dataset.state;
   routeStatus.textContent = '日時を確認して探索してください';
+  updateSearchModeUi();
   syncUrlState();
   updateRunAvailability();
 };
 
 const clearStopGroup = (): void => {
-  selectedOriginName = null;
-  selectedOriginStopIndices = [];
-  delete searchPanel.dataset.originCount;
+  selectedStopName = null;
+  selectedStopGroup = null;
+  selectedStopIndices = [];
+  delete searchPanel.dataset.selectionCount;
   stopMarker?.remove();
   stopMarker = null;
   clearReachabilityLayers(map);
   legend.hidden = true;
+  latestDepartureLegend.hidden = true;
   serviceDay.hidden = true;
   delete routeStatus.dataset.state;
-  routeStatus.textContent = '出発停留所を選択してください';
+  routeStatus.textContent = searchMode === 'depart'
+    ? '出発停留所を選択してください'
+    : '到着停留所を選択してください';
   syncUrlState();
   updateRunAvailability();
 };
+
+modeButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const mode = button.dataset.searchMode;
+    if ((mode === 'depart' || mode === 'arrive') && mode !== searchMode) {
+      searchMode = mode;
+      clearReachabilityLayers(map);
+      legend.hidden = true;
+      latestDepartureLegend.hidden = true;
+      serviceDay.hidden = true;
+      delete routeStatus.dataset.state;
+      routeStatus.textContent = selectedStopName === null
+        ? mode === 'depart' ? '出発停留所を選択してください' : '到着停留所を選択してください'
+        : '日時を確認して探索してください';
+      renderStopMarker();
+      updateSearchModeUi();
+      updateLateNightNote();
+      syncUrlState();
+      updateRunAvailability();
+    }
+  });
+});
 
 retryDataButton.addEventListener('click', () => {
   void loadApplicationData();
@@ -258,6 +309,10 @@ retryDataButton.addEventListener('click', () => {
 void loadApplicationData();
 
 const updateLateNightNote = (): void => {
+  if (searchMode === 'arrive') {
+    lateNightNote.hidden = true;
+    return;
+  }
   try {
     lateNightNote.hidden = !parseDeparture(dateInput.value, timeInput.value).isLateNight;
   } catch {
@@ -273,6 +328,7 @@ timeInput.addEventListener('change', () => {
   syncUrlState();
 });
 updateLateNightNote();
+updateSearchModeUi();
 
 runSearchButton.addEventListener('click', () => {
   void runRouteSearch();
@@ -280,16 +336,7 @@ runSearchButton.addEventListener('click', () => {
 
 async function runRouteSearch(): Promise<void> {
   const dataset = stopDataset;
-  if (dataset === null || selectedOriginStopIndices.length === 0 || routeRunning) {
-    return;
-  }
-
-  let selection: ReturnType<typeof parseDeparture>;
-  try {
-    selection = parseDeparture(dateInput.value, timeInput.value);
-  } catch (error) {
-    routeStatus.dataset.state = 'error';
-    routeStatus.textContent = error instanceof Error ? error.message : String(error);
+  if (dataset === null || selectedStopIndices.length === 0 || routeRunning) {
     return;
   }
 
@@ -299,27 +346,54 @@ async function runRouteSearch(): Promise<void> {
   routeStatus.textContent = '探索しています';
   clearReachabilityLayers(map);
   legend.hidden = true;
+  latestDepartureLegend.hidden = true;
   serviceDay.hidden = true;
   updateRunAvailability();
   try {
-    const result = await raptorClient.route({
-      kind: 'earliestArrival',
-      serviceDate: selection.serviceDate,
-      origins: selectedOriginStopIndices.map((stopIndex) => ({
-        stopIndex,
-        departure: selection.departure,
-      })),
-    });
-    const collection = buildReachableStopCollection(dataset, result.arrival, selection.departure);
-    const reachableStops = countReachableStops(result.arrival);
-    updateReachabilityLayers(map, result.polygons, collection);
-    routeStatus.dataset.state = 'success';
-    routeStatus.textContent = reachableStops <= selectedOriginStopIndices.length
-      ? 'この条件では出発地以外の到達停留所が見つかりませんでした'
-      : `到達 ${String(reachableStops)}停留所（60分以内 ${String(collection.features.length)}地点）/ ポリゴン ${String(Math.round(result.polygons.generationMs))}ms`;
-    serviceDay.textContent = `適用ダイヤ: ${formatServiceLayers(result.serviceLayers, selection.isLateNight)}`;
+    if (searchMode === 'depart') {
+      const selection = parseDeparture(dateInput.value, timeInput.value);
+      const result = await raptorClient.route({
+        kind: 'earliestArrival',
+        serviceDate: selection.serviceDate,
+        origins: selectedStopIndices.map((stopIndex) => ({
+          stopIndex,
+          departure: selection.departure,
+        })),
+      });
+      const collection = buildReachableStopCollection(dataset, result.arrival, selection.departure);
+      const reachableStops = countReachableStops(result.arrival);
+      updateReachabilityLayers(map, result.polygons, collection);
+      routeStatus.dataset.state = 'success';
+      routeStatus.textContent = reachableStops <= selectedStopIndices.length
+        ? 'この条件では出発地以外の到達停留所が見つかりませんでした'
+        : `到達 ${String(reachableStops)}停留所（60分以内 ${String(collection.features.length)}地点）/ ポリゴン ${String(Math.round(result.polygons.generationMs))}ms`;
+      serviceDay.textContent = `適用ダイヤ: ${formatServiceLayers(result.serviceLayers, selection.isLateNight)}`;
+      legend.hidden = false;
+    } else {
+      const selection = parseArrival(dateInput.value, timeInput.value);
+      const result = await raptorClient.route({
+        kind: 'latestDeparture',
+        serviceDate: selection.serviceDate,
+        destinations: selectedStopIndices.map((stopIndex) => ({
+          stopIndex,
+          arrival: selection.arrival,
+        })),
+      });
+      const collection = buildLatestDepartureStopCollection(
+        dataset,
+        result.departure,
+        selection.arrival,
+      );
+      const reachableStops = countReachableStops(result.departure);
+      updateLatestDepartureLayer(map, collection);
+      routeStatus.dataset.state = 'success';
+      routeStatus.textContent = reachableStops <= selectedStopIndices.length
+        ? 'この条件では到着停留所以外の出発可能な停留所が見つかりませんでした'
+        : `出発可能 ${String(reachableStops)}停留所。地図を拡大すると最遅出発時刻を確認できます`;
+      serviceDay.textContent = `適用ダイヤ: ${formatServiceLayers(result.serviceLayers, false, 'reverse')}`;
+      latestDepartureLegend.hidden = false;
+    }
     serviceDay.hidden = false;
-    legend.hidden = false;
   } catch (error) {
     routeStatus.dataset.state = 'error';
     routeStatus.textContent = formatRouteError(error);
@@ -357,7 +431,7 @@ function updateRunAvailability(): void {
     !mapLoaded ||
     !timetableLoaded ||
     stopDataset === null ||
-    selectedOriginStopIndices.length === 0;
+    selectedStopIndices.length === 0;
 }
 
 async function loadApplicationData(): Promise<void> {
@@ -427,14 +501,17 @@ function restoreUrlSelection(): void {
     return;
   }
   urlRestoreAttempted = true;
-  if (initialUrlState.origin === null) {
+  const stopName = initialUrlState.mode === 'depart'
+    ? initialUrlState.origin
+    : initialUrlState.destination;
+  if (stopName === null) {
     return;
   }
-  const group = stopGroups.find(({ name }) => name === initialUrlState.origin);
+  const group = stopGroups.find(({ name }) => name === stopName);
   if (group === undefined || stopSearchUi === null) {
     autoRunPending = false;
     routeStatus.dataset.state = 'error';
-    routeStatus.textContent = '共有URLの出発停留所が見つかりません。停留所を検索し直してください';
+    routeStatus.textContent = `共有URLの${searchMode === 'depart' ? '出発' : '到着'}停留所が見つかりません。停留所を検索し直してください`;
     return;
   }
   stopSearchUi.select(group);
@@ -446,7 +523,7 @@ function maybeRunSharedSearch(): void {
     !mapLoaded ||
     !timetableLoaded ||
     stopDataset === null ||
-    selectedOriginStopIndices.length === 0
+    selectedStopIndices.length === 0
   ) {
     return;
   }
@@ -456,7 +533,9 @@ function maybeRunSharedSearch(): void {
 
 function syncUrlState(): void {
   const updated = writeAppUrlState(pageUrl, {
-    origin: selectedOriginName,
+    mode: searchMode,
+    origin: searchMode === 'depart' ? selectedStopName : null,
+    destination: searchMode === 'arrive' ? selectedStopName : null,
     date: dateInput.value.length === 0 ? null : dateInput.value,
     time: timeInput.value.length === 0 ? null : timeInput.value,
     view: reachabilityView,
@@ -464,8 +543,46 @@ function syncUrlState(): void {
   window.history.replaceState(null, '', updated);
 }
 
+function renderStopMarker(): void {
+  stopMarker?.remove();
+  stopMarker = null;
+  if (selectedStopGroup === null) {
+    return;
+  }
+  stopMarker = new Marker({
+    color: searchMode === 'depart'
+      ? REACHABILITY_COLORS.origin
+      : REACHABILITY_COLORS.destination,
+  })
+    .setLngLat([selectedStopGroup.center[0], selectedStopGroup.center[1]])
+    .addTo(map);
+}
+
+function updateSearchModeUi(): void {
+  const isDepart = searchMode === 'depart';
+  modeButtons.forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.searchMode === searchMode));
+  });
+  searchPanel.setAttribute('aria-label', isDepart ? '出発停留所' : '到着停留所');
+  stopRoleLabel.textContent = isDepart ? '出発停留所' : '到着停留所';
+  dateRoleLabel.textContent = isDepart ? '出発日' : '到着日';
+  timeRoleLabel.textContent = isDepart ? '出発時刻' : '到着時刻';
+  runSearchButton.textContent = isDepart ? '到達範囲を探索' : '最遅出発時刻を探索';
+  const markerRoleLabel = document.querySelector<HTMLElement>('.marker-role-label');
+  if (markerRoleLabel !== null) {
+    markerRoleLabel.textContent = isDepart ? '出発地' : '到着地';
+  }
+  const selection = document.querySelector<HTMLElement>('.stop-selection');
+  if (selection !== null && selectedStopGroup !== null) {
+    selection.textContent = `${String(selectedStopGroup.stopIndices.length)}のりばを${isDepart ? '出発地' : '到着地'}に設定`;
+  }
+}
+
 function formatRouteError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('指定してください') || message.includes('正しくありません')) {
+    return message;
+  }
   if (message.includes('outside feed period')) {
     return '指定日がデータの有効期間外です。日付を変更して再度探索してください';
   }

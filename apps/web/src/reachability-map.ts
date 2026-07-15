@@ -3,16 +3,22 @@ import {
 } from '@isochrone/raptor';
 import { GeoJSONSource, type Map as MapLibreMap } from 'maplibre-gl';
 
-import { type ReachableStopCollection } from './departure-search.js';
+import {
+  type LatestDepartureStopCollection,
+  type ReachableStopCollection,
+} from './departure-search.js';
 
 export const REACHABILITY_COLORS = {
   30: '#087e8b',
   60: '#4c78c2',
   origin: '#d9473d',
+  destination: '#3159a6',
+  latestDeparture: '#7048a8',
 } as const;
 
 const POLYGON_SOURCE_ID = 'reachability-polygons';
 const STOP_SOURCE_ID = 'reachable-stops';
+const LATEST_DEPARTURE_SOURCE_ID = 'latest-departures';
 
 interface PolygonFeatureCollection {
   readonly type: 'FeatureCollection';
@@ -53,6 +59,45 @@ export function initializeReachabilityLayers(map: MapLibreMap, showStopDots: boo
   map.addSource(STOP_SOURCE_ID, { type: 'geojson', data: emptyCollection() });
   addStopLayer(map, 60, showStopDots);
   addStopLayer(map, 30, showStopDots);
+
+  map.addSource(LATEST_DEPARTURE_SOURCE_ID, { type: 'geojson', data: emptyCollection() });
+  map.addLayer({
+    id: 'latest-departure-stops',
+    type: 'circle',
+    source: LATEST_DEPARTURE_SOURCE_ID,
+    paint: {
+      'circle-color': REACHABILITY_COLORS.latestDeparture,
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 15, 6.5],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 1,
+      'circle-opacity': 0.9,
+    },
+  });
+  map.addLayer({
+    id: 'latest-departure-labels',
+    type: 'symbol',
+    source: LATEST_DEPARTURE_SOURCE_ID,
+    minzoom: 12,
+    layout: {
+      'text-field': ['get', 'departureLabel'],
+      'text-size': 11,
+      'text-offset': [0, 1.2],
+      'text-anchor': 'top',
+      'text-allow-overlap': false,
+    },
+    paint: {
+      'text-color': '#35254d',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1.5,
+    },
+  });
+}
+
+export function updateLatestDepartureLayer(
+  map: MapLibreMap,
+  stops: LatestDepartureStopCollection,
+): void {
+  map.getSource<GeoJSONSource>(LATEST_DEPARTURE_SOURCE_ID)?.setData(stops);
 }
 
 export function updateReachabilityLayers(
@@ -67,6 +112,7 @@ export function updateReachabilityLayers(
 export function clearReachabilityLayers(map: MapLibreMap): void {
   map.getSource<GeoJSONSource>(POLYGON_SOURCE_ID)?.setData(emptyCollection());
   map.getSource<GeoJSONSource>(STOP_SOURCE_ID)?.setData(emptyCollection());
+  map.getSource<GeoJSONSource>(LATEST_DEPARTURE_SOURCE_ID)?.setData(emptyCollection());
 }
 
 export function toPolygonCollection(polygons: ReachabilityPolygonsResult): PolygonFeatureCollection {

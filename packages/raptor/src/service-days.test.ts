@@ -2,7 +2,7 @@ import { type PrefixedId } from '@isochrone/gtfs-types';
 import { describe, expect, it } from 'vitest';
 
 import { type LoadedCalendar } from './index.js';
-import { resolveServiceLayers } from './service-days.js';
+import { resolveReverseServiceLayers, resolveServiceLayers } from './service-days.js';
 
 interface ExceptionRow {
   readonly serviceId: PrefixedId;
@@ -44,6 +44,32 @@ describe('resolveServiceLayers', () => {
       minuteOffset: 1440,
       serviceIds: [sid('日休'), sid('日休メーグル')],
       dayType: 'sunday_holiday',
+    });
+  });
+
+  it('returns a next-day reverse layer with -1440 minute offset', () => {
+    const [, nextLayer] = resolveReverseServiceLayers(realCalendar, '20260705');
+
+    expect(nextLayer).toMatchObject({
+      date: '20260706',
+      minuteOffset: -1440,
+      serviceIds: [sid('平日')],
+      dayType: 'weekday',
+    });
+  });
+
+  it('uses an empty adjacent layer at either feed boundary', () => {
+    expect(resolveServiceLayers(realCalendar, '20260328')[1]).toMatchObject({
+      date: '20260327',
+      minuteOffset: 1440,
+      serviceIds: [],
+      dayType: 'none',
+    });
+    expect(resolveReverseServiceLayers(realCalendar, '20270430')[1]).toMatchObject({
+      date: '20270501',
+      minuteOffset: -1440,
+      serviceIds: [],
+      dayType: 'none',
     });
   });
 

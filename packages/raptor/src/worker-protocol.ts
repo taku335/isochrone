@@ -1,4 +1,4 @@
-import { type EarliestArrivalQuery } from './core.js';
+import { type Query } from './core.js';
 import { type LoadedTimetableStats } from './index.js';
 import { type ReachabilityPolygonsResult } from './reachability.js';
 import { type ServiceDayType } from './service-days.js';
@@ -14,7 +14,7 @@ export interface LoadRequest {
 export interface QueryRequest {
   readonly type: 'query';
   readonly requestId: number;
-  readonly query: EarliestArrivalQuery;
+  readonly query: Query;
 }
 
 export interface CancelRequest {
@@ -40,18 +40,29 @@ export interface LoadedResponse {
   readonly stats: LoadedTimetableStats;
 }
 
-export interface RouteResultResponse {
+export type RouteResultResponse = EarliestArrivalResultResponse | LatestDepartureResultResponse;
+
+interface RouteResultResponseBase {
   readonly type: 'result';
   readonly requestId: number;
-  readonly arrival: ArrayBuffer;
   readonly rounds: number;
   readonly serviceLayers: readonly WorkerServiceLayer[];
+}
+
+export interface EarliestArrivalResultResponse extends RouteResultResponseBase {
+  readonly kind: 'earliestArrival';
+  readonly arrival: ArrayBuffer;
   readonly polygons: ReachabilityPolygonsResult;
+}
+
+export interface LatestDepartureResultResponse extends RouteResultResponseBase {
+  readonly kind: 'latestDeparture';
+  readonly departure: ArrayBuffer;
 }
 
 export interface WorkerServiceLayer {
   readonly date: string;
-  readonly minuteOffset: 0 | 1440;
+  readonly minuteOffset: -1440 | 0 | 1440;
   readonly dayType: ServiceDayType;
   readonly displayName: string;
 }

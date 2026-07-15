@@ -8,7 +8,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   attachRaptorWorkerServer,
-  type EarliestArrivalQuery,
   loadTimetable,
   type LoadedTimetable,
   RaptorWorkerClient,
@@ -18,6 +17,7 @@ import {
   type RaptorWorkerRequest,
   type RaptorWorkerResponse,
   type RaptorWorkerServerPort,
+  type Query,
 } from './index.js';
 
 const data = loadTimetable(buildBrowserDatasetFiles(createMiniGtfs(), { feedVersion: 'worker' }));
@@ -64,7 +64,7 @@ describe('RAPTOR worker protocol', () => {
   it('rejects an older query and only runs the latest queued query', async () => {
     const ports = linkedPorts();
     const scheduled: (() => void)[] = [];
-    const runRoute = vi.fn((loaded: LoadedTimetable, nextQuery: EarliestArrivalQuery) =>
+    const runRoute = vi.fn((loaded: LoadedTimetable, nextQuery: Query) =>
       route(loaded, nextQuery));
     attachRaptorWorkerServer(ports.server, {
       load: () => Promise.resolve(data),
@@ -89,6 +89,39 @@ describe('RAPTOR worker protocol', () => {
     await expect(second).resolves.toMatchObject({ rounds: 1 });
     expect(runRoute).toHaveBeenCalledTimes(1);
     expect(runRoute.mock.calls[0]?.[1]).toEqual(secondQuery);
+    client.dispose();
+  });
+
+  it('returns latest departures without generating forward polygons', async () => {
+    const ports = linkedPorts();
+    const generatePolygons = vi.fn();
+    attachRaptorWorkerServer(ports.server, {
+      load: () => Promise.resolve(data),
+      schedule: (task) => {
+        queueMicrotask(task);
+      },
+      generatePolygons,
+    });
+    const client = new RaptorWorkerClient(ports.client);
+    await client.load('/data/manifest.json');
+    const latestQuery = {
+      kind: 'latestDeparture' as const,
+      destinations: [{ stopIndex: 1, arrival: 490 }],
+      serviceDate: '2026-07-07',
+      maxRounds: 1,
+    };
+
+    const asyncResult = await client.route(latestQuery);
+    const syncResult = route(data, latestQuery);
+
+    expect(asyncResult.kind).toBe('latestDeparture');
+    expect([...asyncResult.departure]).toEqual([...syncResult.departure]);
+    expect(asyncResult.serviceLayers).toMatchObject([
+      { date: '20260707', minuteOffset: 0 },
+      { date: '20260708', minuteOffset: -1440 },
+    ]);
+    expect(generatePolygons).not.toHaveBeenCalled();
+    expect(ports.transfers.filter((transfer) => transfer.length > 0)).toHaveLength(1);
     client.dispose();
   });
 });

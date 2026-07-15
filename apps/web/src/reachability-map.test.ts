@@ -12,7 +12,7 @@ describe('reachability map layers', () => {
   });
 
   it('uses distinct color-universal reachability colors', () => {
-    expect(new Set(Object.values(REACHABILITY_COLORS)).size).toBe(3);
+    expect(new Set(Object.values(REACHABILITY_COLORS)).size).toBe(5);
   });
 });
 
