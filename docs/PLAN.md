@@ -5,9 +5,9 @@
 - データソース: 名古屋市交通局 市バス GTFS-JP(BODIK CKAN 経由、CC BY 4.0)
 - サーバーサイド処理なし。前処理済みデータ + ブラウザ内経路探索(RAPTOR)+ ブラウザ内ポリゴン生成
 - フェーズ 1 のスコープ: 市バスのみ・最早到着(earliest arrival)・出発時刻指定
-- フェーズ 2(将来): 「終電・終バス逆算」= 目的地に間に合う最遅出発時刻の逆方向探索。実装契約と検証順序は [`PHASE2.md`](./PHASE2.md) に集約
+- フェーズ 2(実装済み): 「終電・終バス逆算」= 目的地に間に合う最遅出発時刻の逆方向探索。実装契約と検証結果は [`PHASE2.md`](./PHASE2.md) に集約
 
-2026-07 現在、M0〜M4 の Issue #1〜#24 は実装・公開済み。以下は実装時の設計判断と
+2026-07 現在、M0〜M4 の Issue #1〜#25 と Phase 2 の Issue #26 は実装済み。以下は実装時の設計判断と
 現行構成を併記した記録であり、実際の起動方法と運用手順は [`README.md`](../README.md) と
 [`OPERATIONS.md`](./OPERATIONS.md) を正とする。
 
@@ -143,7 +143,6 @@ export interface EarliestArrivalQuery {
   readonly maxRounds?: number;  // 既定 5
 }
 
-// Phase 2 用の型だけを先行定義。route / Worker / UI は未対応
 export interface LatestDepartureQuery {
   readonly kind: 'latestDeparture';
   readonly destinations: readonly { readonly stopIndex: number; readonly arrival: Minutes }[];
@@ -159,11 +158,10 @@ export interface OneToAllResult {
   rounds: number;
 }
 
-export function route(data: LoadedTimetable, query: EarliestArrivalQuery): OneToAllResult;
+export function route(data: LoadedTimetable, query: Query): EarliestArrivalResult | LatestDepartureResult;
 ```
 
-`LatestDepartureQuery` は型の拡張点であり、現時点では実行できない。逆方向探索の結果型、
-翌日サービス日レイヤ、逆向き footpath、Worker と UI の変更契約は
+逆方向探索の結果型、翌日サービス日レイヤ、逆向き footpath、Worker と UI の契約は
 [`PHASE2.md`](./PHASE2.md) を正とする。
 
 - 内部状態は typed array(`Uint16Array` ラベル、`Int32Array` インデックス)で確保し GC 圧を避ける
@@ -271,9 +269,9 @@ graph LR
 | 24 | データ自動更新ワークフロー(週次 cron → 検証 → 自動 PR) | #23, #9 |
 | 25 | ドキュメント整備(README/運用手順/フェーズ2拡張点) | #23 |
 
-### Future(`type:future`、マイルストーンなし)
+### Phase 2 / Future(`type:future`、マイルストーンなし)
 
-Issue #26 の実装計画は [`PHASE2.md`](./PHASE2.md) に集約済み。#27〜#30 は
+Issue #26 は実装済みで、契約と検証結果を [`PHASE2.md`](./PHASE2.md) に集約。#27〜#30 は
 プレースホルダであり、着手時に個別の設計と受入基準を作成する。
 
 | # | タイトル |
@@ -298,7 +296,7 @@ Issue #26 の実装計画は [`PHASE2.md`](./PHASE2.md) に集約済み。#27〜
 | データ品質(改正での形式ブレ・欠損) | validate コマンド(#9): golden numbers、参照整合性、trip 内時刻単調性。CI・自動更新 PR の必須ゲート |
 | フィード URL 失効・ダイヤ改正 | ハードコード URL は `config/agencies.json` のみ。CKAN `package_show` で名前からリソース URL を解決。解決失敗時は CI を fail させ気付ける |
 | タイル提供条件の変更(OpenFreeMap) | スタイル URL を設定値化。自前 PMTiles(protomaps)への移行手順を [`OPERATIONS.md`](./OPERATIONS.md) に記録 |
-| 祝日ダイヤ誤判定(フェーズ 2 の生命線: 終バス時刻を間違えられない) | pipeline の全例外参照検証、代表的な追加・削除例外のサービス日テスト、UI の適用ダイヤ表示。Phase 2 では翌日境界ケースを追加 |
+| 祝日ダイヤ誤判定(フェーズ 2 の生命線: 終バス時刻を間違えられない) | pipeline の全例外参照検証、`calendar_dates` 96 行の全件テーブル駆動テスト、UI の適用ダイヤ表示、逆方向の翌日境界テスト |
 
 ## 9. マイルストーン別検証方法
 

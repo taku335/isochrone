@@ -1,8 +1,9 @@
 # Isochrone
 
-Isochrone is a static web map that shows the areas reachable within 30 or 60 minutes from a
-Nagoya City Bus stop. It runs pattern-based RAPTOR and polygon generation in the browser, so the
-deployed application does not require an application server.
+Isochrone is a static web map for Nagoya City Bus timetable searches. It shows the areas reachable
+within 30 or 60 minutes from a stop and the latest time each stop can be left to reach a destination
+by a deadline. It runs pattern-based RAPTOR and map processing in the browser, so the deployed
+application does not require an application server.
 
 Public application: [https://taku335.github.io/isochrone/](https://taku335.github.io/isochrone/)
 
@@ -18,6 +19,7 @@ service disruptions are not included. Results are estimates derived from the pub
   extend past 24:00.
 - Run one-to-all earliest-arrival RAPTOR in a Web Worker.
 - Draw 30-minute and 60-minute reachable polygons with walking transfers.
+- Run reverse RAPTOR for arrive-by searches and label stops with their latest departure time.
 - Share the selected stop, date, time, and debug view in the URL.
 - Display the source feed version, validity period, service-day layers, and CC BY 4.0 attribution.
 
@@ -133,8 +135,7 @@ The configured map style must provide the required OpenMapTiles and OpenStreetMa
 
 - [Operations runbook](docs/OPERATIONS.md): automatic and manual feed updates, timetable revision
   review, rollback, deployment checks, and the PMTiles migration path.
-- [Phase 2 design](docs/PHASE2.md): the implementation plan for reverse RAPTOR and latest-departure
-  search.
+- [Phase 2 design](docs/PHASE2.md): the implemented reverse RAPTOR and latest-departure contracts.
 - [Development plan](docs/PLAN.md): constraints, data format, milestones, and design history.
 
 ## Data attribution

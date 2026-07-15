@@ -1,7 +1,7 @@
-import { route, type EarliestArrivalQuery } from './core.js';
+import { route, type Query, type RouteResult } from './core.js';
 import { loadTimetableFromManifestUrl, type LoadedTimetable } from './index.js';
 import { generateReachabilityPolygons } from './reachability.js';
-import { resolveServiceLayers } from './service-days.js';
+import { resolveReverseServiceLayers, resolveServiceLayers } from './service-days.js';
 import {
   type RaptorWorkerRequest,
   type RaptorWorkerServerPort,
@@ -10,7 +10,7 @@ import {
 
 export interface RaptorWorkerServerDependencies {
   readonly load?: (manifestUrl: string) => Promise<LoadedTimetable>;
-  readonly runRoute?: (data: LoadedTimetable, query: EarliestArrivalQuery) => ReturnType<typeof route>;
+  readonly runRoute?: (data: LoadedTimetable, query: Query) => RouteResult;
   readonly schedule?: (task: () => void) => void;
   readonly generatePolygons?: typeof generateReachabilityPolygons;
 }
@@ -77,8 +77,11 @@ export function attachRaptorWorkerServer(
         if (latestQueryId !== request.requestId) {
           return;
         }
-        const arrival = result.arrival.buffer as ArrayBuffer;
-        const serviceLayers = resolveServiceLayers(data.calendar, request.query.serviceDate).map(
+        const serviceDate = request.query.serviceDate.replaceAll('-', '');
+        const layers = request.query.kind === 'earliestArrival'
+          ? resolveServiceLayers(data.calendar, serviceDate)
+          : resolveReverseServiceLayers(data.calendar, serviceDate);
+        const serviceLayers = layers.map(
           ({ date, minuteOffset, dayType, displayName }) => ({
             date,
             minuteOffset,
@@ -86,27 +89,48 @@ export function attachRaptorWorkerServer(
             displayName,
           }),
         );
-        const departure = request.query.origins.reduce(
-          (earliest, origin) => Math.min(earliest, origin.departure),
-          Number.POSITIVE_INFINITY,
-        );
-        const polygons = generatePolygons(
-          data.stopLats,
-          data.stopLons,
-          result.arrival,
-          departure,
-        );
-        port.postMessage(
-          {
-            type: 'result',
-            requestId: request.requestId,
-            arrival,
-            rounds: result.rounds,
-            serviceLayers,
-            polygons,
-          },
-          [arrival],
-        );
+        if (result.kind === 'earliestArrival' && request.query.kind === 'earliestArrival') {
+          const arrival = result.arrival.buffer as ArrayBuffer;
+          const departure = request.query.origins.reduce(
+            (earliest, origin) => Math.min(earliest, origin.departure),
+            Number.POSITIVE_INFINITY,
+          );
+          const polygons = generatePolygons(
+            data.stopLats,
+            data.stopLons,
+            result.arrival,
+            departure,
+          );
+          port.postMessage(
+            {
+              type: 'result',
+              requestId: request.requestId,
+              kind: result.kind,
+              arrival,
+              rounds: result.rounds,
+              serviceLayers,
+              polygons,
+            },
+            [arrival],
+          );
+          return;
+        }
+        if (result.kind === 'latestDeparture' && request.query.kind === 'latestDeparture') {
+          const departure = result.departure.buffer as ArrayBuffer;
+          port.postMessage(
+            {
+              type: 'result',
+              requestId: request.requestId,
+              kind: result.kind,
+              departure,
+              rounds: result.rounds,
+              serviceLayers,
+            },
+            [departure],
+          );
+          return;
+        }
+        throw new Error('RAPTOR result kind did not match the query kind.');
       } catch (error) {
         postError(port, request, toErrorMessage(error));
       }

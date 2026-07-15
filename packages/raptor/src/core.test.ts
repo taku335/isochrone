@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest';
 import {
   loadTimetable,
   type LoadedTimetable,
-  type Query,
   route,
   UNREACHED,
 } from './index.js';
@@ -19,6 +18,9 @@ describe('route', () => {
   const stopIndex = new Map(data.stopIds.map((id, index) => [id, index]));
   const transferData = withFootpaths(data, [
     [indexOf('B'), indexOf('E'), 3],
+    [indexOf('W'), indexOf('A'), 1],
+  ]);
+  const asymmetricTransferData = withDirectedFootpaths(data, [
     [indexOf('W'), indexOf('A'), 1],
   ]);
 
@@ -100,14 +102,89 @@ describe('route', () => {
     });
   });
 
-  it('exposes the future latest-departure query as a type', () => {
-    const query: Query = {
-      kind: 'latestDeparture',
-      destinations: [{ stopIndex: indexOf('D'), arrival: 540 }],
+  it('matches known latest departures with zero, one, and two transfers', () => {
+    const query = {
+      kind: 'latestDeparture' as const,
+      destinations: [{ stopIndex: indexOf('D'), arrival: 520 }],
       serviceDate: '2026-07-07',
     };
 
-    expect(query.kind).toBe('latestDeparture');
+    const oneRide = route(data, { ...query, maxRounds: 1 }).departure;
+    expect(read(oneRide, 'C')).toBe(510);
+    expect(read(oneRide, 'B')).toBe(UNREACHED);
+
+    const oneTransfer = route(data, { ...query, maxRounds: 2 }).departure;
+    expect(read(oneTransfer, 'B')).toBe(495);
+    expect(read(oneTransfer, 'A')).toBe(UNREACHED);
+
+    const twoTransfers = route(data, { ...query, maxRounds: 3 }).departure;
+    expect(read(twoTransfers, 'A')).toBe(480);
+  });
+
+  it('uses the next service day on the reverse query timeline', () => {
+    const result = route(data, {
+      kind: 'latestDeparture',
+      destinations: [{ stopIndex: indexOf('B'), arrival: 1950 }],
+      serviceDate: '20260705',
+      maxRounds: 1,
+    });
+
+    expect(read(result.departure, 'A')).toBe(1940);
+  });
+
+  it('relaxes asymmetric footpaths in the inbound direction', () => {
+    const result = route(asymmetricTransferData, {
+      kind: 'latestDeparture',
+      destinations: [{ stopIndex: indexOf('B'), arrival: 490 }],
+      serviceDate: '20260707',
+      maxRounds: 1,
+    });
+
+    expect(read(result.departure, 'A')).toBe(480);
+    expect(read(result.departure, 'W')).toBe(479);
+  });
+
+  it('chooses the element-wise latest departure across destinations', () => {
+    const result = route(data, {
+      kind: 'latestDeparture',
+      destinations: [
+        { stopIndex: indexOf('D'), arrival: 520 },
+        { stopIndex: indexOf('B'), arrival: 510 },
+      ],
+      serviceDate: '20260707',
+      maxRounds: 3,
+    });
+
+    expect(read(result.departure, 'A')).toBe(500);
+    expect(read(result.departure, 'B')).toBe(510);
+  });
+
+  it('matches a brute-force forward search for every fixture stop', () => {
+    const deadline = 515;
+    const maxRounds = 2;
+    const destination = indexOf('F');
+    const reverse = route(transferData, {
+      kind: 'latestDeparture',
+      destinations: [{ stopIndex: destination, arrival: deadline }],
+      serviceDate: '20260707',
+      maxRounds,
+    }).departure;
+
+    data.stopIds.forEach((_, origin) => {
+      let expected = UNREACHED;
+      for (let departure = 0; departure <= deadline; departure += 1) {
+        const arrival = route(transferData, {
+          kind: 'earliestArrival',
+          origins: [{ stopIndex: origin, departure }],
+          serviceDate: '20260707',
+          maxRounds,
+        }).arrival[destination] ?? UNREACHED;
+        if (arrival <= deadline) {
+          expected = departure;
+        }
+      }
+      expect(reverse[origin], `stop ${data.stopNames[origin] ?? String(origin)}`).toBe(expected);
+    });
   });
 
   function run(maxRounds: number): Uint16Array {
@@ -232,6 +309,37 @@ function withFootpaths(
   for (const [from, to, duration] of undirectedEdges) {
     edges[from]?.set(to, duration);
     edges[to]?.set(from, duration);
+  }
+
+  const offsets = [0];
+  const targetStopIndices: number[] = [];
+  const durations: number[] = [];
+  edges.forEach((targets) => {
+    for (const [target, duration] of [...targets].sort(([a], [b]) => a - b)) {
+      targetStopIndices.push(target);
+      durations.push(duration);
+    }
+    offsets.push(targetStopIndices.length);
+  });
+
+  return {
+    ...data,
+    footpaths: {
+      stopIndices: Int32Array.from(data.stopIds.map((_, index) => index)),
+      offsets: Int32Array.from(offsets),
+      targetStopIndices: Int32Array.from(targetStopIndices),
+      durations: Uint16Array.from(durations),
+    },
+  };
+}
+
+function withDirectedFootpaths(
+  data: LoadedTimetable,
+  directedEdges: readonly (readonly [number, number, number])[],
+): LoadedTimetable {
+  const edges = Array.from({ length: data.stopIds.length }, () => new Map<number, number>());
+  for (const [from, to, duration] of directedEdges) {
+    edges[from]?.set(to, duration);
   }
 
   const offsets = [0];

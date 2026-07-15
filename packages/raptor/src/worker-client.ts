@@ -1,4 +1,10 @@
-import { type EarliestArrivalQuery, type OneToAllResult } from './core.js';
+import {
+  type EarliestArrivalQuery,
+  type EarliestArrivalResult,
+  type LatestDepartureQuery,
+  type LatestDepartureResult,
+  type Query,
+} from './core.js';
 import { type LoadedTimetableStats } from './index.js';
 import { type ReachabilityPolygonsResult } from './reachability.js';
 import {
@@ -18,10 +24,18 @@ interface PendingRequest {
   readonly reject: (reason: Error) => void;
 }
 
-export interface RaptorWorkerRouteResult extends OneToAllResult {
+export interface RaptorWorkerEarliestArrivalResult extends EarliestArrivalResult {
   readonly serviceLayers: readonly WorkerServiceLayer[];
   readonly polygons: ReachabilityPolygonsResult;
 }
+
+export interface RaptorWorkerLatestDepartureResult extends LatestDepartureResult {
+  readonly serviceLayers: readonly WorkerServiceLayer[];
+}
+
+export type RaptorWorkerRouteResult =
+  | RaptorWorkerEarliestArrivalResult
+  | RaptorWorkerLatestDepartureResult;
 
 export class SupersededQueryError extends Error {
   public constructor() {
@@ -73,7 +87,10 @@ export class RaptorWorkerClient {
     return this.#loadPromise;
   }
 
-  public route(query: EarliestArrivalQuery): Promise<RaptorWorkerRouteResult> {
+  public route(query: EarliestArrivalQuery): Promise<RaptorWorkerEarliestArrivalResult>;
+  public route(query: LatestDepartureQuery): Promise<RaptorWorkerLatestDepartureResult>;
+  public route(query: Query): Promise<RaptorWorkerRouteResult>;
+  public route(query: Query): Promise<RaptorWorkerRouteResult> {
     if (this.#activeQueryId !== null) {
       const previousId = this.#activeQueryId;
       this.#pending.get(previousId)?.reject(new SupersededQueryError());
@@ -135,12 +152,20 @@ export class RaptorWorkerClient {
       if (this.#activeQueryId === response.requestId) {
         this.#activeQueryId = null;
       }
-      pending.resolve({
-        arrival: new Uint16Array(response.arrival),
-        rounds: response.rounds,
-        serviceLayers: response.serviceLayers,
-        polygons: response.polygons,
-      });
+      pending.resolve(response.kind === 'earliestArrival'
+        ? {
+            kind: response.kind,
+            arrival: new Uint16Array(response.arrival),
+            rounds: response.rounds,
+            serviceLayers: response.serviceLayers,
+            polygons: response.polygons,
+          }
+        : {
+            kind: response.kind,
+            departure: new Uint16Array(response.departure),
+            rounds: response.rounds,
+            serviceLayers: response.serviceLayers,
+          });
       return;
     }
 

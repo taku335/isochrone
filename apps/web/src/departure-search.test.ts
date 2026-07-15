@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildReachableStopCollection,
+  buildLatestDepartureStopCollection,
   countReachableStops,
   formatServiceLayers,
   getDefaultDeparture,
   parseDeparture,
+  parseArrival,
 } from './departure-search.js';
 
 describe('departure search', () => {
@@ -27,6 +29,13 @@ describe('departure search', () => {
     expect(parseDeparture('2026-07-08', '03:00').isLateNight).toBe(false);
   });
 
+  it('parses an arrive-by deadline', () => {
+    expect(parseArrival('2026-07-08', '23:30')).toEqual({
+      serviceDate: '20260708',
+      arrival: 1410,
+    });
+  });
+
   it('builds 30 and 60 minute dot bands and reports the CLI-compatible total', () => {
     const arrival = Uint16Array.from([480, 510, 540, 541, UNREACHED]);
     const collection = buildReachableStopCollection(stops, arrival, 480);
@@ -38,6 +47,25 @@ describe('departure search', () => {
   it('shows both service days for late-night searches', () => {
     expect(formatServiceLayers(layers, true)).toBe('指定日: 平日 / 前日深夜: 土曜');
     expect(formatServiceLayers(layers, false)).toBe('指定日: 平日');
+  });
+
+  it('builds labeled latest-departure points and shows the next-day layer', () => {
+    const collection = buildLatestDepartureStopCollection(
+      stops,
+      Uint16Array.from([480, 1500, UNREACHED, 541, 600]),
+      1510,
+    );
+
+    expect(collection.features.map(({ properties }) => properties.departureLabel)).toEqual([
+      '08:00',
+      '翌日 01:00',
+      '09:01',
+      '10:00',
+    ]);
+    expect(formatServiceLayers([
+      { date: '20260708', minuteOffset: 0, dayType: 'weekday', displayName: '平日' },
+      { date: '20260709', minuteOffset: -1440, dayType: 'saturday', displayName: '土曜' },
+    ], false, 'reverse')).toBe('指定日: 平日 / 翌日: 土曜');
   });
 });
 

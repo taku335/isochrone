@@ -1,5 +1,10 @@
 import { type LoadedTimetable } from './index.js';
-import { resolveServiceLayers, type ServiceLayer } from './service-days.js';
+import {
+  resolveReverseServiceLayers,
+  resolveServiceLayers,
+  type ServiceLayer,
+  type ServiceMinuteOffset,
+} from './service-days.js';
 
 export type Minutes = number;
 
@@ -32,20 +37,46 @@ export interface Destination {
 
 export type Query = EarliestArrivalQuery | LatestDepartureQuery;
 
-export interface OneToAllResult {
+export interface EarliestArrivalResult {
+  readonly kind: 'earliestArrival';
   readonly arrival: Uint16Array;
   readonly rounds: number;
 }
 
+export type OneToAllResult = EarliestArrivalResult;
+
+export interface LatestDepartureResult {
+  readonly kind: 'latestDeparture';
+  readonly departure: Uint16Array;
+  readonly rounds: number;
+}
+
+export type RouteResult = EarliestArrivalResult | LatestDepartureResult;
+
 interface BoardedTrip {
   readonly tripIndex: number;
-  readonly minuteOffset: 0 | 1440;
+  readonly minuteOffset: ServiceMinuteOffset;
 }
 
 export function route(
   data: LoadedTimetable,
   query: EarliestArrivalQuery,
-): OneToAllResult {
+): EarliestArrivalResult;
+export function route(
+  data: LoadedTimetable,
+  query: LatestDepartureQuery,
+): LatestDepartureResult;
+export function route(data: LoadedTimetable, query: Query): RouteResult;
+export function route(data: LoadedTimetable, query: Query): RouteResult {
+  return query.kind === 'earliestArrival'
+    ? routeEarliestArrival(data, query)
+    : routeLatestDeparture(data, query);
+}
+
+function routeEarliestArrival(
+  data: LoadedTimetable,
+  query: EarliestArrivalQuery,
+): EarliestArrivalResult {
   const maxRounds = query.maxRounds ?? DEFAULT_MAX_ROUNDS;
   assertMaxRounds(maxRounds);
 
@@ -115,7 +146,91 @@ export function route(
     }
   }
 
-  return { arrival, rounds };
+  return { kind: 'earliestArrival', arrival, rounds };
+}
+
+function routeLatestDeparture(
+  data: LoadedTimetable,
+  query: LatestDepartureQuery,
+): LatestDepartureResult {
+  const maxRounds = query.maxRounds ?? DEFAULT_MAX_ROUNDS;
+  assertMaxRounds(maxRounds);
+
+  const departure = new Uint16Array(data.stopIds.length);
+  departure.fill(UNREACHED);
+  let marked = new Uint8Array(data.stopIds.length);
+  const inboundFootpaths = buildInboundFootpaths(data);
+
+  for (const destination of query.destinations) {
+    assertStopIndex(destination.stopIndex, data.stopIds.length);
+    assertMinute(destination.arrival, 'Destination arrival');
+    if (improvesLatest(destination.arrival, departure[destination.stopIndex] ?? UNREACHED)) {
+      departure[destination.stopIndex] = destination.arrival;
+      marked[destination.stopIndex] = 1;
+    }
+  }
+
+  const destinationSources = marked.slice();
+  relaxInboundFootpaths(
+    destinationSources,
+    departure.slice(),
+    departure,
+    marked,
+    inboundFootpaths,
+  );
+
+  const layers = resolveReverseServiceLayers(
+    data.calendar,
+    normalizeServiceDate(query.serviceDate),
+  );
+  const activeServices = layers.map((layer) => buildActiveServices(data, layer));
+  const stopPatternRows = buildStopPatternRows(data);
+  const queuedEnds = new Int32Array(Math.max(data.patterns.stopOffsets.length - 1, 0));
+  let rounds = 0;
+
+  for (let round = 1; round <= maxRounds; round += 1) {
+    queuedEnds.fill(-1);
+    queueMarkedPatternsReverse(data, marked, stopPatternRows, queuedEnds);
+    if (!queuedEnds.some((end) => end >= 0)) {
+      break;
+    }
+
+    const previous = departure.slice();
+    const nextMarked = new Uint8Array(data.stopIds.length);
+
+    for (let patternIndex = 0; patternIndex < queuedEnds.length; patternIndex += 1) {
+      const endPosition = queuedEnds[patternIndex] ?? -1;
+      if (endPosition < 0) {
+        continue;
+      }
+      scanPatternReverse(
+        data,
+        patternIndex,
+        endPosition,
+        previous,
+        departure,
+        nextMarked,
+        layers,
+        activeServices,
+      );
+    }
+
+    const footpathSources = nextMarked.slice();
+    relaxInboundFootpaths(
+      footpathSources,
+      departure.slice(),
+      departure,
+      nextMarked,
+      inboundFootpaths,
+    );
+    rounds = round;
+    marked = nextMarked;
+    if (!marked.some((value) => value !== 0)) {
+      break;
+    }
+  }
+
+  return { kind: 'latestDeparture', departure, rounds };
 }
 
 function relaxFootpaths(
@@ -151,6 +266,48 @@ function relaxFootpaths(
       ) {
         arrival[targetStopIndex] = transferredArrival;
         marked[targetStopIndex] = 1;
+      }
+    }
+  });
+}
+
+interface InboundFootpaths {
+  readonly offsets: Int32Array;
+  readonly sourceStopIndices: Int32Array;
+  readonly durations: Uint16Array;
+}
+
+function relaxInboundFootpaths(
+  destinations: Uint8Array,
+  destinationDeparture: Uint16Array,
+  departure: Uint16Array,
+  marked: Uint8Array,
+  inbound: InboundFootpaths,
+): void {
+  destinations.forEach((isDestination, stopIndex) => {
+    if (isDestination === 0) {
+      return;
+    }
+    const leaveDestinationBy = destinationDeparture[stopIndex] ?? UNREACHED;
+    if (leaveDestinationBy === UNREACHED) {
+      return;
+    }
+
+    const edgeStart = inbound.offsets[stopIndex] ?? 0;
+    const edgeEnd = inbound.offsets[stopIndex + 1] ?? edgeStart;
+    for (let edge = edgeStart; edge < edgeEnd; edge += 1) {
+      const sourceStopIndex = inbound.sourceStopIndices[edge];
+      const duration = inbound.durations[edge];
+      if (sourceStopIndex === undefined || duration === undefined) {
+        continue;
+      }
+      const transferredDeparture = leaveDestinationBy - duration;
+      if (
+        transferredDeparture >= 0 &&
+        improvesLatest(transferredDeparture, departure[sourceStopIndex] ?? UNREACHED)
+      ) {
+        departure[sourceStopIndex] = transferredDeparture;
+        marked[sourceStopIndex] = 1;
       }
     }
   });
@@ -209,6 +366,61 @@ function scanPattern(
   }
 }
 
+function scanPatternReverse(
+  data: LoadedTimetable,
+  patternIndex: number,
+  endPosition: number,
+  previous: Uint16Array,
+  departure: Uint16Array,
+  nextMarked: Uint8Array,
+  layers: readonly ServiceLayer[],
+  activeServices: readonly Uint8Array[],
+): void {
+  const stopStart = data.patterns.stopOffsets[patternIndex] ?? 0;
+  let boarded: BoardedTrip | null = null;
+
+  for (let position = endPosition; position >= 0; position -= 1) {
+    const stopIndex = data.patterns.stopIndices[stopStart + position];
+    if (stopIndex === undefined) {
+      continue;
+    }
+
+    if (boarded !== null) {
+      const leaveAt = getGlobalTripTime(data, boarded, position, true);
+      if (
+        leaveAt >= 0 &&
+        leaveAt < UNREACHED &&
+        improvesLatest(leaveAt, departure[stopIndex] ?? UNREACHED)
+      ) {
+        departure[stopIndex] = leaveAt;
+        nextMarked[stopIndex] = 1;
+      }
+    }
+
+    const arriveBy = previous[stopIndex] ?? UNREACHED;
+    if (arriveBy === UNREACHED) {
+      continue;
+    }
+
+    const candidate = findLatestAlightableTrip(
+      data,
+      patternIndex,
+      position,
+      arriveBy,
+      layers,
+      activeServices,
+    );
+    if (
+      candidate !== null &&
+      (boarded === null ||
+        getGlobalTripTime(data, candidate, position, false) >
+          getGlobalTripTime(data, boarded, position, false))
+    ) {
+      boarded = candidate;
+    }
+  }
+}
+
 function findEarliestBoardableTrip(
   data: LoadedTimetable,
   patternIndex: number,
@@ -259,6 +471,56 @@ function findEarliestBoardableTrip(
   return best;
 }
 
+function findLatestAlightableTrip(
+  data: LoadedTimetable,
+  patternIndex: number,
+  stopPosition: number,
+  arriveBy: number,
+  layers: readonly ServiceLayer[],
+  activeServices: readonly Uint8Array[],
+): BoardedTrip | null {
+  const tripStart = data.patterns.tripOffsets[patternIndex] ?? 0;
+  const tripEnd = data.patterns.tripOffsets[patternIndex + 1] ?? tripStart;
+  let best: BoardedTrip | null = null;
+
+  layers.forEach((layer, layerIndex) => {
+    const localArriveBy = arriveBy + layer.minuteOffset;
+    if (localArriveBy < 0 || localArriveBy >= UNREACHED) {
+      return;
+    }
+
+    const active = activeServices[layerIndex];
+    if (active === undefined) {
+      return;
+    }
+
+    let tripIndex = upperBoundTripArrival(
+      data,
+      tripStart,
+      tripEnd,
+      stopPosition,
+      localArriveBy,
+    ) - 1;
+    while (tripIndex >= tripStart) {
+      const serviceIndex = data.trips.serviceIndices[tripIndex] ?? -1;
+      if ((active[serviceIndex] ?? 0) !== 0) {
+        const candidate: BoardedTrip = { tripIndex, minuteOffset: layer.minuteOffset };
+        if (
+          best === null ||
+          getGlobalTripTime(data, candidate, stopPosition, false) >
+            getGlobalTripTime(data, best, stopPosition, false)
+        ) {
+          best = candidate;
+        }
+        break;
+      }
+      tripIndex -= 1;
+    }
+  });
+
+  return best;
+}
+
 function lowerBoundTrip(
   data: LoadedTimetable,
   start: number,
@@ -280,12 +542,42 @@ function lowerBoundTrip(
   return low;
 }
 
+function upperBoundTripArrival(
+  data: LoadedTimetable,
+  start: number,
+  end: number,
+  stopPosition: number,
+  arriveBy: number,
+): number {
+  let low = start;
+  let high = end;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const arrival = readTripTime(data, middle, stopPosition, false);
+    if (arrival <= arriveBy) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
 function getGlobalDeparture(
   data: LoadedTimetable,
   trip: BoardedTrip,
   stopPosition: number,
 ): number {
   return readTripTime(data, trip.tripIndex, stopPosition, true) - trip.minuteOffset;
+}
+
+function getGlobalTripTime(
+  data: LoadedTimetable,
+  trip: BoardedTrip,
+  stopPosition: number,
+  departure: boolean,
+): number {
+  return readTripTime(data, trip.tripIndex, stopPosition, departure) - trip.minuteOffset;
 }
 
 function readTripTime(
@@ -336,6 +628,35 @@ function queueMarkedPatterns(
   });
 }
 
+function queueMarkedPatternsReverse(
+  data: LoadedTimetable,
+  marked: Uint8Array,
+  stopPatternRows: Int32Array,
+  queuedEnds: Int32Array,
+): void {
+  marked.forEach((isMarked, stopIndex) => {
+    if (isMarked === 0) {
+      return;
+    }
+    const row = stopPatternRows[stopIndex] ?? -1;
+    if (row < 0) {
+      return;
+    }
+    const indexStart = data.stopPatternIndex.offsets[row] ?? 0;
+    const indexEnd = data.stopPatternIndex.offsets[row + 1] ?? indexStart;
+    for (let index = indexStart; index < indexEnd; index += 1) {
+      const patternIndex = data.stopPatternIndex.patternIndices[index];
+      if (patternIndex === undefined) {
+        continue;
+      }
+      const position = findStopPosition(data, patternIndex, stopIndex);
+      if (position > (queuedEnds[patternIndex] ?? -1)) {
+        queuedEnds[patternIndex] = position;
+      }
+    }
+  });
+}
+
 function findStopPosition(
   data: LoadedTimetable,
   patternIndex: number,
@@ -373,6 +694,58 @@ function buildFootpathRows(data: LoadedTimetable): Int32Array {
   return rows;
 }
 
+function buildInboundFootpaths(data: LoadedTimetable): InboundFootpaths {
+  const stopCount = data.stopIds.length;
+  const counts = new Int32Array(stopCount);
+  const footpathRows = buildFootpathRows(data);
+
+  for (let sourceStopIndex = 0; sourceStopIndex < stopCount; sourceStopIndex += 1) {
+    const row = footpathRows[sourceStopIndex] ?? -1;
+    if (row < 0) {
+      continue;
+    }
+    const edgeStart = data.footpaths.offsets[row] ?? 0;
+    const edgeEnd = data.footpaths.offsets[row + 1] ?? edgeStart;
+    for (let edge = edgeStart; edge < edgeEnd; edge += 1) {
+      const targetStopIndex = data.footpaths.targetStopIndices[edge] ?? -1;
+      if (targetStopIndex >= 0 && targetStopIndex < stopCount) {
+        counts[targetStopIndex] = (counts[targetStopIndex] ?? 0) + 1;
+      }
+    }
+  }
+
+  const offsets = new Int32Array(stopCount + 1);
+  for (let stopIndex = 0; stopIndex < stopCount; stopIndex += 1) {
+    offsets[stopIndex + 1] = (offsets[stopIndex] ?? 0) + (counts[stopIndex] ?? 0);
+  }
+  const edgeCount = offsets[stopCount] ?? 0;
+  const sourceStopIndices = new Int32Array(edgeCount);
+  const durations = new Uint16Array(edgeCount);
+  const cursors = offsets.slice(0, stopCount);
+
+  for (let sourceStopIndex = 0; sourceStopIndex < stopCount; sourceStopIndex += 1) {
+    const row = footpathRows[sourceStopIndex] ?? -1;
+    if (row < 0) {
+      continue;
+    }
+    const edgeStart = data.footpaths.offsets[row] ?? 0;
+    const edgeEnd = data.footpaths.offsets[row + 1] ?? edgeStart;
+    for (let edge = edgeStart; edge < edgeEnd; edge += 1) {
+      const targetStopIndex = data.footpaths.targetStopIndices[edge] ?? -1;
+      const duration = data.footpaths.durations[edge];
+      if (targetStopIndex < 0 || targetStopIndex >= stopCount || duration === undefined) {
+        continue;
+      }
+      const cursor = cursors[targetStopIndex] ?? 0;
+      sourceStopIndices[cursor] = sourceStopIndex;
+      durations[cursor] = duration;
+      cursors[targetStopIndex] = cursor + 1;
+    }
+  }
+
+  return { offsets, sourceStopIndices, durations };
+}
+
 function buildActiveServices(data: LoadedTimetable, layer: ServiceLayer): Uint8Array {
   const active = new Uint8Array(data.calendar.serviceIds.length);
   layer.serviceIndices.forEach((serviceIndex) => {
@@ -406,4 +779,8 @@ function assertMinute(minute: number, label: string): void {
   if (!Number.isInteger(minute) || minute < 0 || minute >= UNREACHED) {
     throw new Error(`${label} must be an integer from 0 to ${String(UNREACHED - 1)}.`);
   }
+}
+
+function improvesLatest(candidate: number, current: number): boolean {
+  return current === UNREACHED || candidate > current;
 }
