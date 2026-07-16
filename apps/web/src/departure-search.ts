@@ -199,6 +199,13 @@ export function formatMinute(minute: number): string {
   return day === 0 ? clock : `${day === 1 ? '翌日' : `${String(day)}日後`} ${clock}`;
 }
 
+export function formatTimeInputValue(minute: number): string {
+  if (!Number.isInteger(minute) || minute < 0 || minute >= 1440) {
+    throw new Error(`Clock minute must be an integer from 0 to 1439: ${String(minute)}`);
+  }
+  return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+}
+
 function formatDayType(dayType: WorkerServiceLayer['dayType']): string {
   switch (dayType) {
     case 'weekday': return '平日';

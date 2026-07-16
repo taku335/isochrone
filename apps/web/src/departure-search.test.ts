@@ -7,6 +7,7 @@ import {
   buildLatestDepartureStopCollection,
   countReachableStops,
   formatServiceLayers,
+  formatTimeInputValue,
   getDefaultDeparture,
   parseDeparture,
   parseArrival,
@@ -34,6 +35,13 @@ describe('departure search', () => {
       serviceDate: '20260708',
       arrival: 1410,
     });
+  });
+
+  it('formats slider minutes for the time input', () => {
+    expect(formatTimeInputValue(0)).toBe('00:00');
+    expect(formatTimeInputValue(8 * 60 + 5)).toBe('08:05');
+    expect(formatTimeInputValue(23 * 60 + 55)).toBe('23:55');
+    expect(() => formatTimeInputValue(1440)).toThrow('0 to 1439');
   });
 
   it('builds 30 and 60 minute dot bands and reports the CLI-compatible total', () => {

@@ -9,6 +9,7 @@ import {
   buildLatestDepartureStopCollection,
   countReachableStops,
   formatServiceLayers,
+  formatTimeInputValue,
   getDefaultDeparture,
   parseDeparture,
   parseArrival,
@@ -112,6 +113,25 @@ app.innerHTML = `
               <input class="departure-time" type="time" step="60" />
             </label>
           </div>
+          <div class="time-slider-control">
+            <label for="departure-time-slider">
+              <span>出発時刻</span>
+              <output class="time-slider-output" for="departure-time-slider">--:--</output>
+            </label>
+            <input
+              id="departure-time-slider"
+              class="departure-time-slider"
+              type="range"
+              min="0"
+              max="1435"
+              step="5"
+              value="480"
+              disabled
+            />
+            <div class="time-slider-ticks" aria-hidden="true">
+              <span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+            </div>
+          </div>
           <p class="late-night-note" hidden>
             0〜2時台は指定日と前日深夜（24時以降）のダイヤを合わせて探索します
           </p>
@@ -180,6 +200,18 @@ const dateRoleLabel = requireElement(document.querySelector<HTMLElement>('.date-
 const timeRoleLabel = requireElement(document.querySelector<HTMLElement>('.time-role-label'), '.time-role-label');
 const dateInput = requireElement(document.querySelector<HTMLInputElement>('.departure-date'), '.departure-date');
 const timeInput = requireElement(document.querySelector<HTMLInputElement>('.departure-time'), '.departure-time');
+const timeSliderControl = requireElement(
+  document.querySelector<HTMLElement>('.time-slider-control'),
+  '.time-slider-control',
+);
+const timeSlider = requireElement(
+  document.querySelector<HTMLInputElement>('.departure-time-slider'),
+  '.departure-time-slider',
+);
+const timeSliderOutput = requireElement(
+  document.querySelector<HTMLOutputElement>('.time-slider-output'),
+  '.time-slider-output',
+);
 const lateNightNote = requireElement(document.querySelector<HTMLParagraphElement>('.late-night-note'), '.late-night-note');
 const runButton = requireElement(document.querySelector<HTMLButtonElement>('.run-search'), '.run-search');
 const routeStatus = requireElement(document.querySelector<HTMLParagraphElement>('.route-status'), '.route-status');
@@ -232,8 +264,11 @@ const raptorClient = createRaptorWorkerClient({
   },
 });
 let stopDataset: BrowserStopsDataset | null = null;
+const LIVE_SEARCH_DELAY_MS = 180;
 let timetableLoaded = false;
 let routeRunning = false;
+let routeRequestVersion = 0;
+let liveSearchTimer: ReturnType<typeof setTimeout> | null = null;
 let dataLoadRunning = false;
 let stopSearchUi: StopSearchUiController | null = null;
 let stopGroups: readonly StopGroup[] = [];
@@ -245,6 +280,7 @@ let urlRestoreAttempted = false;
 let selectedStopIndices: readonly number[] = [];
 let stopMarker: Marker | null = null;
 const selectStopGroup = (group: StopGroup): void => {
+  invalidateRouteSearch();
   selectedStopName = group.name;
   selectedStopGroup = group;
   selectedStopIndices = group.stopIndices;
@@ -263,6 +299,7 @@ const selectStopGroup = (group: StopGroup): void => {
 };
 
 const clearStopGroup = (): void => {
+  invalidateRouteSearch();
   selectedStopName = null;
   selectedStopGroup = null;
   selectedStopIndices = [];
@@ -285,6 +322,7 @@ modeButtons.forEach((button) => {
   button.addEventListener('click', () => {
     const mode = button.dataset.searchMode;
     if ((mode === 'depart' || mode === 'arrive') && mode !== searchMode) {
+      invalidateRouteSearch();
       searchMode = mode;
       clearReachabilityLayers(map);
       legend.hidden = true;
@@ -320,13 +358,27 @@ const updateLateNightNote = (): void => {
   }
 };
 dateInput.addEventListener('change', () => {
+  invalidateRouteSearch();
   updateLateNightNote();
   syncUrlState();
+  updateRunAvailability();
 });
 timeInput.addEventListener('change', () => {
+  invalidateRouteSearch();
+  syncTimeSlider();
   updateLateNightNote();
   syncUrlState();
+  updateRunAvailability();
 });
+timeSlider.addEventListener('input', () => {
+  invalidateRouteSearch();
+  timeInput.value = formatTimeInputValue(timeSlider.valueAsNumber);
+  timeSliderOutput.value = timeInput.value;
+  updateLateNightNote();
+  syncUrlState();
+  scheduleLiveSearch();
+});
+syncTimeSlider();
 updateLateNightNote();
 updateSearchModeUi();
 
@@ -336,10 +388,12 @@ runSearchButton.addEventListener('click', () => {
 
 async function runRouteSearch(): Promise<void> {
   const dataset = stopDataset;
-  if (dataset === null || selectedStopIndices.length === 0 || routeRunning) {
+  if (dataset === null || selectedStopIndices.length === 0) {
     return;
   }
 
+  const requestVersion = routeRequestVersion + 1;
+  routeRequestVersion = requestVersion;
   syncUrlState();
   routeRunning = true;
   routeStatus.dataset.state = 'loading';
@@ -360,6 +414,9 @@ async function runRouteSearch(): Promise<void> {
           departure: selection.departure,
         })),
       });
+      if (requestVersion !== routeRequestVersion) {
+        return;
+      }
       const collection = buildReachableStopCollection(dataset, result.arrival, selection.departure);
       const reachableStops = countReachableStops(result.arrival);
       updateReachabilityLayers(map, result.polygons, collection);
@@ -379,6 +436,9 @@ async function runRouteSearch(): Promise<void> {
           arrival: selection.arrival,
         })),
       });
+      if (requestVersion !== routeRequestVersion) {
+        return;
+      }
       const collection = buildLatestDepartureStopCollection(
         dataset,
         result.departure,
@@ -395,11 +455,16 @@ async function runRouteSearch(): Promise<void> {
     }
     serviceDay.hidden = false;
   } catch (error) {
+    if (requestVersion !== routeRequestVersion) {
+      return;
+    }
     routeStatus.dataset.state = 'error';
     routeStatus.textContent = formatRouteError(error);
   } finally {
-    routeRunning = false;
-    updateRunAvailability();
+    if (requestVersion === routeRequestVersion) {
+      routeRunning = false;
+      updateRunAvailability();
+    }
   }
 }
 
@@ -422,16 +487,22 @@ map.on('error', () => {
 });
 
 window.addEventListener('beforeunload', () => {
+  if (liveSearchTimer !== null) {
+    clearTimeout(liveSearchTimer);
+  }
   raptorClient.dispose();
 });
 
 function updateRunAvailability(): void {
+  const ready =
+    mapLoaded &&
+    timetableLoaded &&
+    stopDataset !== null &&
+    selectedStopIndices.length > 0;
   runSearchButton.disabled =
     routeRunning ||
-    !mapLoaded ||
-    !timetableLoaded ||
-    stopDataset === null ||
-    selectedStopIndices.length === 0;
+    !ready;
+  timeSlider.disabled = searchMode !== 'depart' || !ready;
 }
 
 async function loadApplicationData(): Promise<void> {
@@ -543,6 +614,46 @@ function syncUrlState(): void {
   window.history.replaceState(null, '', updated);
 }
 
+function syncTimeSlider(): void {
+  try {
+    const minute = parseDeparture(dateInput.value, timeInput.value).departure;
+    const sliderMinute = Math.min(1435, Math.round(minute / 5) * 5);
+    timeSlider.value = String(sliderMinute);
+    timeSliderOutput.value = timeInput.value;
+  } catch {
+    timeSliderOutput.value = '--:--';
+  }
+}
+
+function scheduleLiveSearch(): void {
+  if (liveSearchTimer !== null) {
+    clearTimeout(liveSearchTimer);
+  }
+  if (
+    searchMode !== 'depart' ||
+    !mapLoaded ||
+    !timetableLoaded ||
+    stopDataset === null ||
+    selectedStopIndices.length === 0
+  ) {
+    liveSearchTimer = null;
+    return;
+  }
+  liveSearchTimer = setTimeout(() => {
+    liveSearchTimer = null;
+    void runRouteSearch();
+  }, LIVE_SEARCH_DELAY_MS);
+}
+
+function invalidateRouteSearch(): void {
+  routeRequestVersion += 1;
+  routeRunning = false;
+  if (liveSearchTimer !== null) {
+    clearTimeout(liveSearchTimer);
+    liveSearchTimer = null;
+  }
+}
+
 function renderStopMarker(): void {
   stopMarker?.remove();
   stopMarker = null;
@@ -568,6 +679,7 @@ function updateSearchModeUi(): void {
   dateRoleLabel.textContent = isDepart ? '出発日' : '到着日';
   timeRoleLabel.textContent = isDepart ? '出発時刻' : '到着時刻';
   runSearchButton.textContent = isDepart ? '到達範囲を探索' : '最遅出発時刻を探索';
+  timeSliderControl.hidden = !isDepart;
   const markerRoleLabel = document.querySelector<HTMLElement>('.marker-role-label');
   if (markerRoleLabel !== null) {
     markerRoleLabel.textContent = isDepart ? '出発地' : '到着地';

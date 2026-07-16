@@ -349,6 +349,60 @@ h1 {
   box-shadow: 0 0 0 3px rgb(21 125 91 / 15%);
 }
 
+.time-slider-control {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.7rem;
+  padding: 0.55rem 0.65rem 0.45rem;
+  border-top: 1px solid #dfe5e2;
+  border-bottom: 1px solid #dfe5e2;
+  background: #f7f9f8;
+}
+
+.time-slider-control[hidden] {
+  display: none;
+}
+
+.time-slider-control label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #39443f;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.time-slider-output {
+  color: #145f46;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.departure-time-slider {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  accent-color: #157d5b;
+  cursor: ew-resize;
+}
+
+.departure-time-slider:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.time-slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  color: #717b76;
+  font-size: 0.5625rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
 .late-night-note {
   margin: 0.55rem 0 0;
   padding-left: 0.55rem;
