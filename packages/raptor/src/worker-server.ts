@@ -91,7 +91,7 @@ export function attachRaptorWorkerServer(
         );
         if (result.kind === 'earliestArrival' && request.query.kind === 'earliestArrival') {
           const arrival = result.arrival.buffer as ArrayBuffer;
-          const departure = request.query.origins.reduce(
+          const departure = request.query.originPoint?.departure ?? request.query.origins.reduce(
             (earliest, origin) => Math.min(earliest, origin.departure),
             Number.POSITIVE_INFINITY,
           );
@@ -100,6 +100,14 @@ export function attachRaptorWorkerServer(
             data.stopLons,
             result.arrival,
             departure,
+            request.query.originPoint === undefined
+              ? {}
+              : {
+                  originPoint: {
+                    lon: request.query.originPoint.lon,
+                    lat: request.query.originPoint.lat,
+                  },
+                },
           );
           port.postMessage(
             {

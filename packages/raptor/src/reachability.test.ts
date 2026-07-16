@@ -45,6 +45,22 @@ describe('reachability polygons', () => {
       });
     });
   });
+
+  it('includes an arbitrary origin point when no stop is reachable', () => {
+    const originPoint = { lon: 136.9, lat: 35.17 };
+    const result = generateReachabilityPolygons(
+      [35.18],
+      [136.91],
+      Uint16Array.from([UNREACHED]),
+      480,
+      { originPoint },
+    );
+
+    result.layers.forEach((layer) => {
+      expect(containsPoint(layer.feature?.geometry ?? null, [originPoint.lon, originPoint.lat]))
+        .toBe(true);
+    });
+  });
 });
 
 function expectValidRings(geometry: Polygon | MultiPolygon | null): void {

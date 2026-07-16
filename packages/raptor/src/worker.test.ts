@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   attachRaptorWorkerServer,
+  generateReachabilityPolygons,
   loadTimetable,
   type LoadedTimetable,
   RaptorWorkerClient,
@@ -89,6 +90,34 @@ describe('RAPTOR worker protocol', () => {
     await expect(second).resolves.toMatchObject({ rounds: 1 });
     expect(runRoute).toHaveBeenCalledTimes(1);
     expect(runRoute.mock.calls[0]?.[1]).toEqual(secondQuery);
+    client.dispose();
+  });
+
+  it('uses the point departure as the polygon elapsed-time baseline', async () => {
+    const ports = linkedPorts();
+    const generatePolygons = vi.fn<typeof generateReachabilityPolygons>(
+      () => ({ layers: [], generationMs: 0 }),
+    );
+    attachRaptorWorkerServer(ports.server, {
+      load: () => Promise.resolve(data),
+      schedule: (task) => {
+        queueMicrotask(task);
+      },
+      generatePolygons,
+    });
+    const client = new RaptorWorkerClient(ports.client);
+    await client.load('/data/manifest.json');
+
+    await client.route({
+      ...query,
+      origins: [{ stopIndex: 0, departure: 480 }],
+      originPoint: { lon: 136.9, lat: 35.17, departure: 470 },
+    });
+
+    expect(generatePolygons.mock.calls[0]?.[3]).toBe(470);
+    expect(generatePolygons.mock.calls[0]?.[4]).toEqual({
+      originPoint: { lon: 136.9, lat: 35.17 },
+    });
     client.dispose();
   });
 

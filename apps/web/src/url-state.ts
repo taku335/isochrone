@@ -4,6 +4,7 @@ export type SearchMode = 'depart' | 'arrive';
 export interface AppUrlState {
   readonly mode: SearchMode;
   readonly origin: string | null;
+  readonly originPoint: { readonly lon: number; readonly lat: number } | null;
   readonly destination: string | null;
   readonly date: string | null;
   readonly time: string | null;
@@ -14,6 +15,7 @@ export function readAppUrlState(url: URL): AppUrlState {
   return {
     mode: url.searchParams.get('mode') === 'arrive' ? 'arrive' : 'depart',
     origin: readNonEmpty(url.searchParams.get('origin')),
+    originPoint: readOriginPoint(url.searchParams),
     destination: readNonEmpty(url.searchParams.get('destination')),
     date: readDate(url.searchParams.get('date')),
     time: readTime(url.searchParams.get('time')),
@@ -28,6 +30,13 @@ export function writeAppUrlState(url: URL, state: AppUrlState): URL {
   const updated = new URL(url);
   updated.searchParams.set('mode', state.mode);
   setOrDelete(updated.searchParams, 'origin', state.origin);
+  if (state.originPoint === null) {
+    updated.searchParams.delete('originLat');
+    updated.searchParams.delete('originLon');
+  } else {
+    updated.searchParams.set('originLat', state.originPoint.lat.toFixed(6));
+    updated.searchParams.set('originLon', state.originPoint.lon.toFixed(6));
+  }
   setOrDelete(updated.searchParams, 'destination', state.destination);
   setOrDelete(updated.searchParams, 'date', state.date);
   setOrDelete(updated.searchParams, 'time', state.time);
@@ -41,8 +50,31 @@ export function writeAppUrlState(url: URL, state: AppUrlState): URL {
 }
 
 export function hasRunnableUrlState(state: AppUrlState): boolean {
-  const stop = state.mode === 'depart' ? state.origin : state.destination;
-  return stop !== null && state.date !== null && state.time !== null;
+  const hasPlace = state.mode === 'depart'
+    ? state.origin !== null || state.originPoint !== null
+    : state.destination !== null;
+  return hasPlace && state.date !== null && state.time !== null;
+}
+
+function readOriginPoint(params: URLSearchParams): AppUrlState['originPoint'] {
+  const rawLat = params.get('originLat');
+  const rawLon = params.get('originLon');
+  if (rawLat === null || rawLon === null || rawLat.trim() === '' || rawLon.trim() === '') {
+    return null;
+  }
+  const lat = Number(rawLat);
+  const lon = Number(rawLon);
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    lat < -90 ||
+    lat > 90 ||
+    lon < -180 ||
+    lon > 180
+  ) {
+    return null;
+  }
+  return { lon, lat };
 }
 
 function readNonEmpty(value: string | null): string | null {
