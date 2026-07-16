@@ -9,6 +9,7 @@ export interface StopSearchUiOptions {
 
 export interface StopSearchUiController {
   readonly select: (group: StopGroup) => void;
+  readonly clear: (focus?: boolean) => void;
   readonly dispose: () => void;
 }
 
@@ -103,7 +104,7 @@ export function initializeStopSearchUi(options: StopSearchUiOptions): StopSearch
     }
   };
 
-  const clear = (): void => {
+  const clear = (focus = true): void => {
     input.value = '';
     clearButton.hidden = true;
     selectionElement.hidden = true;
@@ -114,19 +115,25 @@ export function initializeStopSearchUi(options: StopSearchUiOptions): StopSearch
       options.onClear?.();
     }
     renderResults();
-    input.focus();
+    if (focus) {
+      input.focus();
+    }
   };
 
   input.disabled = false;
   input.addEventListener('input', updateResults);
   input.addEventListener('keydown', handleKeydown);
-  clearButton.addEventListener('click', clear);
+  const handleClear = (): void => {
+    clear();
+  };
+  clearButton.addEventListener('click', handleClear);
   return {
     select,
+    clear,
     dispose: () => {
       input.removeEventListener('input', updateResults);
       input.removeEventListener('keydown', handleKeydown);
-      clearButton.removeEventListener('click', clear);
+      clearButton.removeEventListener('click', handleClear);
     },
   };
 }

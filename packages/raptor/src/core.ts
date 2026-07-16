@@ -14,8 +14,15 @@ export const DEFAULT_MAX_ROUNDS = 5;
 export interface EarliestArrivalQuery {
   readonly kind: 'earliestArrival';
   readonly origins: readonly Origin[];
+  readonly originPoint?: PointOrigin;
   readonly serviceDate: string;
   readonly maxRounds?: number;
+}
+
+export interface PointOrigin {
+  readonly lon: number;
+  readonly lat: number;
+  readonly departure: Minutes;
 }
 
 export interface Origin {

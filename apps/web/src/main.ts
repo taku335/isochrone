@@ -17,6 +17,12 @@ import {
 import { resolveMapConfig } from './map-config.js';
 import { createMap } from './map.js';
 import {
+  buildPointOriginIndex,
+  POINT_ORIGIN_RADIUS_METERS,
+  type PointOriginIndex,
+  type PointOriginSelection,
+} from './point-origin.js';
+import {
   loadStopDatasetWithManifest,
   resolveDatasetManifestUrl,
 } from './stop-data.js';
@@ -89,6 +95,11 @@ app.innerHTML = `
           />
           <button class="stop-search-clear" type="button" aria-label="検索をクリア" hidden>×</button>
         </div>
+        <div class="point-origin-controls">
+          <button class="map-origin-select" type="button" aria-pressed="false">地図から選択</button>
+          <button class="current-location-select" type="button">現在地</button>
+        </div>
+        <p class="point-origin-feedback" hidden></p>
         <div class="data-load-feedback" role="status" aria-live="polite">
           <progress class="data-load-progress" aria-label="時刻表データを読み込み中"></progress>
           <p class="stop-search-loading">時刻表データを読み込んでいます</p>
@@ -171,7 +182,7 @@ app.innerHTML = `
       </section>
       <section>
         <h3>算出方法</h3>
-        <p>時刻表探索にはRAPTORを使用しています。徒歩乗換は停留所から300m以内、歩行速度80m/分として計算します。</p>
+        <p>時刻表探索にはRAPTORを使用しています。徒歩乗換は停留所から300m以内、地点からの出発は800m以内の停留所を対象に、歩行速度80m/分として計算します。</p>
       </section>
       <section>
         <h3>ご利用にあたって</h3>
@@ -182,6 +193,7 @@ app.innerHTML = `
 `;
 
 const mapContainer = requireElement(document.querySelector<HTMLDivElement>('#map'), '#map');
+const mapStage = requireElement(document.querySelector<HTMLElement>('.map-stage'), '.map-stage');
 const mapStatus = requireElement(
   document.querySelector<HTMLParagraphElement>('.map-status'),
   '.map-status',
@@ -193,6 +205,22 @@ const searchLoading = requireElement(document.querySelector<HTMLParagraphElement
 const loadFeedback = requireElement(document.querySelector<HTMLElement>('.data-load-feedback'), '.data-load-feedback');
 const loadProgress = requireElement(document.querySelector<HTMLProgressElement>('.data-load-progress'), '.data-load-progress');
 const dataRetryButton = requireElement(document.querySelector<HTMLButtonElement>('.data-retry'), '.data-retry');
+const pointOriginControls = requireElement(
+  document.querySelector<HTMLElement>('.point-origin-controls'),
+  '.point-origin-controls',
+);
+const mapOriginButton = requireElement(
+  document.querySelector<HTMLButtonElement>('.map-origin-select'),
+  '.map-origin-select',
+);
+const currentLocationButton = requireElement(
+  document.querySelector<HTMLButtonElement>('.current-location-select'),
+  '.current-location-select',
+);
+const pointOriginFeedback = requireElement(
+  document.querySelector<HTMLParagraphElement>('.point-origin-feedback'),
+  '.point-origin-feedback',
+);
 
 const modeButtons = document.querySelectorAll<HTMLButtonElement>('[data-search-mode]');
 const stopRoleLabel = requireElement(document.querySelector<HTMLElement>('.stop-role-label'), '.stop-role-label');
@@ -264,16 +292,21 @@ const raptorClient = createRaptorWorkerClient({
   },
 });
 let stopDataset: BrowserStopsDataset | null = null;
+let pointOriginIndex: PointOriginIndex | null = null;
 const LIVE_SEARCH_DELAY_MS = 180;
 let timetableLoaded = false;
 let routeRunning = false;
 let routeRequestVersion = 0;
 let liveSearchTimer: ReturnType<typeof setTimeout> | null = null;
 let dataLoadRunning = false;
+let mapLoaded = false;
+let locationRunning = false;
 let stopSearchUi: StopSearchUiController | null = null;
 let stopGroups: readonly StopGroup[] = [];
 let selectedStopName: string | null = null;
 let selectedStopGroup: StopGroup | null = null;
+let selectedPointOrigin: PointOriginSelection | null = null;
+let mapOriginArmed = false;
 let autoRunPending = hasRunnableUrlState(initialUrlState);
 let urlRestoreAttempted = false;
 
@@ -281,6 +314,9 @@ let selectedStopIndices: readonly number[] = [];
 let stopMarker: Marker | null = null;
 const selectStopGroup = (group: StopGroup): void => {
   invalidateRouteSearch();
+  selectedPointOrigin = null;
+  setMapOriginArmed(false);
+  pointOriginFeedback.hidden = true;
   selectedStopName = group.name;
   selectedStopGroup = group;
   selectedStopIndices = group.stopIndices;
@@ -300,6 +336,9 @@ const selectStopGroup = (group: StopGroup): void => {
 
 const clearStopGroup = (): void => {
   invalidateRouteSearch();
+  selectedPointOrigin = null;
+  setMapOriginArmed(false);
+  pointOriginFeedback.hidden = true;
   selectedStopName = null;
   selectedStopGroup = null;
   selectedStopIndices = [];
@@ -324,6 +363,9 @@ modeButtons.forEach((button) => {
     if ((mode === 'depart' || mode === 'arrive') && mode !== searchMode) {
       invalidateRouteSearch();
       searchMode = mode;
+      if (mode === 'arrive' && selectedPointOrigin !== null) {
+        clearStopGroup();
+      }
       clearReachabilityLayers(map);
       legend.hidden = true;
       latestDepartureLegend.hidden = true;
@@ -339,6 +381,45 @@ modeButtons.forEach((button) => {
       updateRunAvailability();
     }
   });
+});
+
+mapOriginButton.addEventListener('click', () => {
+  setMapOriginArmed(!mapOriginArmed);
+  if (mapOriginArmed) {
+    pointOriginFeedback.hidden = false;
+    pointOriginFeedback.dataset.state = 'active';
+    pointOriginFeedback.textContent = '出発地点を地図上で選択してください';
+  } else if (selectedPointOrigin !== null) {
+    pointOriginFeedback.dataset.state = selectedPointOrigin.stops.length === 0 ? 'error' : 'success';
+    pointOriginFeedback.textContent = selectedPointOrigin.stops.length === 0
+      ? `選択地点の${String(POINT_ORIGIN_RADIUS_METERS)}m以内に停留所がありません`
+      : `選択地点から徒歩で${String(selectedPointOrigin.stops.length)}停留所に接続します`;
+  }
+});
+
+currentLocationButton.addEventListener('click', () => {
+  if (pointOriginIndex === null) {
+    showPointOriginError('現在地を取得できません');
+    return;
+  }
+  locationRunning = true;
+  setMapOriginArmed(false);
+  updateRunAvailability();
+  pointOriginFeedback.hidden = false;
+  pointOriginFeedback.dataset.state = 'active';
+  pointOriginFeedback.textContent = '現在地を取得しています';
+  navigator.geolocation.getCurrentPosition(
+    ({ coords }) => {
+      locationRunning = false;
+      selectPointOrigin(coords.longitude, coords.latitude);
+    },
+    () => {
+      locationRunning = false;
+      showPointOriginError('現在地を取得できませんでした。位置情報の許可を確認してください');
+      updateRunAvailability();
+    },
+    { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+  );
 });
 
 retryDataButton.addEventListener('click', () => {
@@ -406,13 +487,28 @@ async function runRouteSearch(): Promise<void> {
   try {
     if (searchMode === 'depart') {
       const selection = parseDeparture(dateInput.value, timeInput.value);
+      const origins = selectedPointOrigin === null
+        ? selectedStopIndices.map((stopIndex) => ({
+            stopIndex,
+            departure: selection.departure,
+          }))
+        : selectedPointOrigin.stops.map(({ stopIndex, walkMinutes }) => ({
+            stopIndex,
+            departure: selection.departure + walkMinutes,
+          }));
       const result = await raptorClient.route({
         kind: 'earliestArrival',
         serviceDate: selection.serviceDate,
-        origins: selectedStopIndices.map((stopIndex) => ({
-          stopIndex,
-          departure: selection.departure,
-        })),
+        origins,
+        ...(selectedPointOrigin === null
+          ? {}
+          : {
+              originPoint: {
+                lon: selectedPointOrigin.lon,
+                lat: selectedPointOrigin.lat,
+                departure: selection.departure,
+              },
+            }),
       });
       if (requestVersion !== routeRequestVersion) {
         return;
@@ -468,7 +564,6 @@ async function runRouteSearch(): Promise<void> {
   }
 }
 
-let mapLoaded = false;
 void map.once('load', () => {
   mapLoaded = true;
   initializeReachabilityLayers(map, showReachableStopDots);
@@ -484,6 +579,11 @@ map.on('error', () => {
   mapStatus.hidden = false;
   mapStatus.dataset.state = 'error';
   mapStatus.textContent = '地図を読み込めません。ページを再読み込みしてください';
+});
+map.on('click', ({ lngLat }) => {
+  if (mapOriginArmed) {
+    selectPointOrigin(lngLat.lng, lngLat.lat);
+  }
 });
 
 window.addEventListener('beforeunload', () => {
@@ -503,6 +603,12 @@ function updateRunAvailability(): void {
     routeRunning ||
     !ready;
   timeSlider.disabled = searchMode !== 'depart' || !ready;
+  mapOriginButton.disabled = searchMode !== 'depart' || !mapLoaded || pointOriginIndex === null;
+  currentLocationButton.disabled =
+    searchMode !== 'depart' ||
+    !mapLoaded ||
+    pointOriginIndex === null ||
+    locationRunning;
 }
 
 async function loadApplicationData(): Promise<void> {
@@ -530,6 +636,7 @@ async function loadApplicationData(): Promise<void> {
 
     if (loadedStopData !== null) {
       stopDataset = loadedStopData.stops;
+      pointOriginIndex = buildPointOriginIndex(loadedStopData.stops);
       stopGroups = buildStopGroups(loadedStopData.stops);
       const datasetSummary = formatDatasetSummary(loadedStopData.manifest);
       datasetSummaries.forEach((element) => {
@@ -572,6 +679,10 @@ function restoreUrlSelection(): void {
     return;
   }
   urlRestoreAttempted = true;
+  if (initialUrlState.mode === 'depart' && initialUrlState.originPoint !== null) {
+    selectPointOrigin(initialUrlState.originPoint.lon, initialUrlState.originPoint.lat);
+    return;
+  }
   const stopName = initialUrlState.mode === 'depart'
     ? initialUrlState.origin
     : initialUrlState.destination;
@@ -606,6 +717,9 @@ function syncUrlState(): void {
   const updated = writeAppUrlState(pageUrl, {
     mode: searchMode,
     origin: searchMode === 'depart' ? selectedStopName : null,
+    originPoint: searchMode === 'depart' && selectedPointOrigin !== null
+      ? { lon: selectedPointOrigin.lon, lat: selectedPointOrigin.lat }
+      : null,
     destination: searchMode === 'arrive' ? selectedStopName : null,
     date: dateInput.value.length === 0 ? null : dateInput.value,
     time: timeInput.value.length === 0 ? null : timeInput.value,
@@ -657,7 +771,10 @@ function invalidateRouteSearch(): void {
 function renderStopMarker(): void {
   stopMarker?.remove();
   stopMarker = null;
-  if (selectedStopGroup === null) {
+  const center = selectedPointOrigin === null
+    ? selectedStopGroup?.center
+    : [selectedPointOrigin.lon, selectedPointOrigin.lat] as const;
+  if (center === undefined) {
     return;
   }
   stopMarker = new Marker({
@@ -665,7 +782,7 @@ function renderStopMarker(): void {
       ? REACHABILITY_COLORS.origin
       : REACHABILITY_COLORS.destination,
   })
-    .setLngLat([selectedStopGroup.center[0], selectedStopGroup.center[1]])
+    .setLngLat([center[0], center[1]])
     .addTo(map);
 }
 
@@ -680,6 +797,8 @@ function updateSearchModeUi(): void {
   timeRoleLabel.textContent = isDepart ? '出発時刻' : '到着時刻';
   runSearchButton.textContent = isDepart ? '到達範囲を探索' : '最遅出発時刻を探索';
   timeSliderControl.hidden = !isDepart;
+  pointOriginControls.hidden = !isDepart;
+  mapOriginButton.setAttribute('aria-pressed', String(mapOriginArmed));
   const markerRoleLabel = document.querySelector<HTMLElement>('.marker-role-label');
   if (markerRoleLabel !== null) {
     markerRoleLabel.textContent = isDepart ? '出発地' : '到着地';
@@ -688,6 +807,70 @@ function updateSearchModeUi(): void {
   if (selection !== null && selectedStopGroup !== null) {
     selection.textContent = `${String(selectedStopGroup.stopIndices.length)}のりばを${isDepart ? '出発地' : '到着地'}に設定`;
   }
+}
+
+function setMapOriginArmed(armed: boolean): void {
+  mapOriginArmed = armed && searchMode === 'depart' && pointOriginIndex !== null;
+  mapOriginButton.setAttribute('aria-pressed', String(mapOriginArmed));
+  mapStage.classList.toggle('map-origin-armed', mapOriginArmed);
+  if (!mapOriginArmed && selectedPointOrigin === null && pointOriginFeedback.dataset.state === 'active') {
+    pointOriginFeedback.hidden = true;
+  }
+}
+
+function showPointOriginError(message: string): void {
+  setMapOriginArmed(false);
+  pointOriginFeedback.hidden = false;
+  pointOriginFeedback.dataset.state = 'error';
+  pointOriginFeedback.textContent = message;
+}
+
+function selectPointOrigin(lon: number, lat: number): void {
+  const index = pointOriginIndex;
+  if (index === null || searchMode !== 'depart') {
+    showPointOriginError('地点から出発するためのデータを読み込めませんでした');
+    return;
+  }
+
+  let selection: PointOriginSelection;
+  try {
+    selection = index.select(lon, lat);
+  } catch {
+    showPointOriginError('選択した地点を出発地に設定できませんでした');
+    return;
+  }
+
+  invalidateRouteSearch();
+  stopSearchUi?.clear(false);
+  selectedStopName = null;
+  selectedStopGroup = null;
+  selectedPointOrigin = selection;
+  selectedStopIndices = selection.stops.map(({ stopIndex }) => stopIndex);
+  searchPanel.dataset.selectionCount = String(selectedStopIndices.length);
+  setMapOriginArmed(false);
+  renderStopMarker();
+  map.easeTo({ center: [selection.lon, selection.lat], zoom: 14.5, duration: 500 });
+  clearReachabilityLayers(map);
+  legend.hidden = true;
+  latestDepartureLegend.hidden = true;
+  serviceDay.hidden = true;
+  pointOriginFeedback.hidden = false;
+
+  if (selection.stops.length === 0) {
+    pointOriginFeedback.dataset.state = 'error';
+    pointOriginFeedback.textContent = `選択地点の${String(POINT_ORIGIN_RADIUS_METERS)}m以内に停留所がありません`;
+    routeStatus.dataset.state = 'error';
+    routeStatus.textContent = '別の地点を選択してください';
+    autoRunPending = false;
+  } else {
+    pointOriginFeedback.dataset.state = 'success';
+    pointOriginFeedback.textContent = `選択地点から徒歩で${String(selection.stops.length)}停留所に接続します`;
+    delete routeStatus.dataset.state;
+    routeStatus.textContent = '日時を確認して探索してください';
+  }
+  syncUrlState();
+  updateRunAvailability();
+  maybeRunSharedSearch();
 }
 
 function formatRouteError(error: unknown): string {

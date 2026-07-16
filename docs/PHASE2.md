@@ -133,5 +133,7 @@ desktop layouts have no horizontal overflow or overlapping controls.
 
 ## Out of scope
 
-Phase 2 does not include multi-agency routing, GTFS-RT, arbitrary map-point origins, a time slider,
-fare rules, or guaranteed connections. Those remain Issues #27 through #30 or new focused issues.
+The Phase 2 implementation itself does not include multi-agency routing, GTFS-RT, arbitrary
+map-point origins, a time slider, fare rules, or guaranteed connections. The time slider and
+map-point origin were added subsequently in Issues #27 and #28; the other items remain separate
+future work.

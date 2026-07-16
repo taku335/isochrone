@@ -14,6 +14,7 @@ describe('URL state', () => {
     expect(state).toEqual({
       mode: 'depart',
       origin: '栄',
+      originPoint: null,
       destination: null,
       date: '2026-07-07',
       time: '08:00',
@@ -39,6 +40,7 @@ describe('URL state', () => {
     expect(state).toMatchObject({
       mode: 'arrive',
       origin: null,
+      originPoint: null,
       destination: '栄',
       date: '2026-07-07',
       time: '23:30',
@@ -50,6 +52,7 @@ describe('URL state', () => {
     const updated = writeAppUrlState(new URL('https://example.test/?lang=ja&debug=stops'), {
       mode: 'depart',
       origin: '名古屋駅',
+      originPoint: null,
       destination: null,
       date: '2026-07-08',
       time: '09:15',
@@ -58,5 +61,24 @@ describe('URL state', () => {
     expect(updated.href).toBe(
       'https://example.test/?lang=ja&mode=depart&origin=%E5%90%8D%E5%8F%A4%E5%B1%8B%E9%A7%85&date=2026-07-08&time=09%3A15',
     );
+  });
+
+  it('round-trips an arbitrary map origin', () => {
+    const updated = writeAppUrlState(new URL('https://example.test/'), {
+      mode: 'depart',
+      origin: null,
+      originPoint: { lon: 136.9065654, lat: 35.1814504 },
+      destination: null,
+      date: '2026-07-08',
+      time: '09:15',
+      view: 'polygons',
+    });
+    expect(updated.searchParams.get('originLat')).toBe('35.181450');
+    expect(updated.searchParams.get('originLon')).toBe('136.906565');
+    expect(readAppUrlState(updated).originPoint).toEqual({
+      lon: 136.906565,
+      lat: 35.18145,
+    });
+    expect(hasRunnableUrlState(readAppUrlState(updated))).toBe(true);
   });
 });

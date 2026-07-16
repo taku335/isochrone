@@ -15,6 +15,8 @@ service disruptions are not included. Results are estimates derived from the pub
 ## Features
 
 - Search Nagoya City Bus stops by name or kana and group poles with the same stop name.
+- Start from any map point or the browser's current location, connecting on foot to stops within
+  800 metres through a spatial index built when the stop dataset loads.
 - Select a service date and departure time while correctly handling GTFS trips whose source times
   extend past 24:00.
 - Move departure time in five-minute steps and refresh the reachable area with debounced Worker
@@ -22,7 +24,7 @@ service disruptions are not included. Results are estimates derived from the pub
 - Run one-to-all earliest-arrival RAPTOR in a Web Worker.
 - Draw 30-minute and 60-minute reachable polygons with walking transfers.
 - Run reverse RAPTOR for arrive-by searches and label stops with their latest departure time.
-- Share the selected stop, date, time, and debug view in the URL.
+- Share the selected stop or map point, date, time, and debug view in the URL.
 - Display the source feed version, validity period, service-day layers, and CC BY 4.0 attribution.
 
 ## Requirements

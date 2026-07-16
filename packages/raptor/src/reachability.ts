@@ -30,6 +30,7 @@ export interface ReachabilityPolygonsResult {
 
 export interface ReachabilityGenerationOptions {
   readonly now?: () => number;
+  readonly originPoint?: { readonly lon: number; readonly lat: number };
 }
 
 export function generateReachabilityPolygons(
@@ -43,7 +44,14 @@ export function generateReachabilityPolygons(
   const startedAt = now();
   const layers = REACHABILITY_LIMITS.map((limitMinutes) => {
     const layerStartedAt = now();
-    const feature = unionBuffers(stopLats, stopLons, arrival, departure, limitMinutes);
+    const feature = unionBuffers(
+      stopLats,
+      stopLons,
+      arrival,
+      departure,
+      limitMinutes,
+      options.originPoint,
+    );
     return { limitMinutes, feature, generationMs: now() - layerStartedAt };
   });
   return { layers, generationMs: now() - startedAt };
@@ -55,6 +63,7 @@ function unionBuffers(
   arrival: Uint16Array,
   departure: number,
   limitMinutes: (typeof REACHABILITY_LIMITS)[number],
+  originPoint: { readonly lon: number; readonly lat: number } | undefined,
 ): Feature<Polygon | MultiPolygon> | null {
   const buffersByCenter = new Map<string, { readonly lon: number; readonly lat: number; radius: number }>();
   arrival.forEach((arrivalMinute, stopIndex) => {
@@ -82,6 +91,18 @@ function unionBuffers(
       existing.radius = radius;
     }
   });
+
+  if (originPoint !== undefined) {
+    const radius = Math.max(
+      MIN_BUFFER_METERS,
+      Math.min(limitMinutes * WALKING_METERS_PER_MINUTE, MAX_BUFFER_METERS),
+    );
+    buffersByCenter.set(`${String(originPoint.lon)},${String(originPoint.lat)}`, {
+      lon: originPoint.lon,
+      lat: originPoint.lat,
+      radius,
+    });
+  }
 
   const features = removeContainedBuffers([...buffersByCenter.values()]).map(({ lon, lat, radius }) =>
     createBufferPolygon(lon, lat, radius));
