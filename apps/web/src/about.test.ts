@@ -9,6 +9,31 @@ describe('dataset attribution', () => {
       'feed_version version-from-manifest / 2026/03/28〜2027/03/27',
     );
   });
+
+  it('shows each source version and the shared service period for a merged dataset', () => {
+    expect(formatDatasetSummary({
+      ...manifest,
+      agencyId: 'nagoya-transit',
+      feedVersion: 'multi-1234',
+      sources: [
+        {
+          agencyId: 'nagoya-cbus',
+          displayName: '市バス',
+          feedVersion: 'bus-v1',
+          servicePeriod: { startDate: '20260328', endDate: '20270327' },
+        },
+        {
+          agencyId: 'nagoya-subway',
+          displayName: '地下鉄',
+          feedVersion: 'subway-v2',
+          servicePeriod: { startDate: '20260401', endDate: '20270331' },
+        },
+      ],
+      servicePeriod: { startDate: '20260401', endDate: '20270327' },
+    })).toBe(
+      'feed_versions 市バス bus-v1 / 地下鉄 subway-v2 / 共通有効期間 2026/04/01〜2027/03/27',
+    );
+  });
 });
 
 const manifest: BrowserDatasetManifest = {

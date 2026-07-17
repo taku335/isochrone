@@ -113,6 +113,13 @@ export interface BrowserDatasetManifest {
   readonly formatVersion: 1;
   readonly agencyId: string;
   readonly feedVersion: string;
+  /**
+   * Source-level metadata for attribution and multi-agency freshness checks.
+   *
+   * This remains optional so clients can still load formatVersion 1 manifests
+   * produced before source metadata was introduced.
+   */
+  readonly sources?: readonly BrowserDatasetSource[];
   readonly servicePeriod: BrowserDatasetServicePeriod;
   readonly files: {
     readonly stops: BrowserDatasetFile;
@@ -122,6 +129,20 @@ export interface BrowserDatasetManifest {
     readonly limitBytes: number;
     readonly dataGzipBytes: number;
   };
+}
+
+export interface BrowserDatasetSource {
+  readonly agencyId: string;
+  readonly displayName: string;
+  readonly feedVersion: string;
+  readonly servicePeriod: BrowserDatasetServicePeriod;
+  readonly attribution?: BrowserDatasetAttribution;
+}
+
+export interface BrowserDatasetAttribution {
+  readonly datasetUrl: string;
+  readonly licenseName: string;
+  readonly licenseUrl: string;
 }
 
 export interface BrowserDatasetServicePeriod {

@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import {
   type BrowserDatasetFile,
   type BrowserDatasetManifest,
-  type BrowserDatasetServicePeriod,
+  type BrowserDatasetSource,
   type BrowserStopsDataset,
   type BrowserTimetableDataset,
   type NormalizedCalendar,
@@ -20,6 +20,7 @@ import {
 
 import { type FootpathConfig } from './agencies.js';
 import { buildFootpaths, DEFAULT_FOOTPATH_CONFIG } from './footpaths.js';
+import { getGtfsServicePeriod, getSharedServicePeriod } from './multi-agency.js';
 import { buildCompactTimetable } from './patterns.js';
 
 export const DEFAULT_DATASET_SIZE_LIMIT_BYTES = 1_500_000;
@@ -28,6 +29,7 @@ export interface BuildBrowserDatasetOptions {
   readonly feedVersion: string;
   readonly footpathConfig?: FootpathConfig;
   readonly sizeLimitBytes?: number;
+  readonly sources?: readonly BrowserDatasetSource[];
 }
 
 export interface BrowserDatasetFiles {
@@ -79,11 +81,23 @@ export function buildBrowserDatasetFiles(
   const limitBytes = options.sizeLimitBytes ?? DEFAULT_DATASET_SIZE_LIMIT_BYTES;
   const stopsPayload = createFilePayload('stops', buildBrowserStopsDataset(gtfs, options.footpathConfig));
   const timetablePayload = createFilePayload('timetable', buildBrowserTimetableDataset(gtfs));
+  const sources = options.sources ?? [
+    {
+      agencyId: gtfs.agencyId,
+      displayName: gtfs.agencyId,
+      feedVersion: options.feedVersion,
+      servicePeriod: getGtfsServicePeriod(gtfs),
+    },
+  ];
+  if (sources.length === 0) {
+    throw new Error('Browser dataset must include at least one source.');
+  }
   const manifest: BrowserDatasetManifest = {
     formatVersion: 1,
     agencyId: gtfs.agencyId,
     feedVersion: options.feedVersion,
-    servicePeriod: getServicePeriod(gtfs),
+    sources,
+    servicePeriod: getSharedServicePeriod(sources),
     files: {
       stops: stopsPayload.file,
       timetable: timetablePayload.file,
@@ -232,23 +246,6 @@ function toJsonBytes(value: unknown): Uint8Array {
 
 function getGzipBytes(bytes: Uint8Array): number {
   return gzipSync(bytes, { level: 9 }).byteLength;
-}
-
-function getServicePeriod(gtfs: NormalizedGtfs): BrowserDatasetServicePeriod {
-  const dates = [
-    ...gtfs.calendar.flatMap((entry) => [entry.startDate, entry.endDate]),
-    ...gtfs.calendarDates.map((entry) => entry.date),
-  ].filter((date) => date.length > 0);
-
-  if (dates.length === 0) {
-    return { startDate: null, endDate: null };
-  }
-
-  dates.sort();
-  return {
-    startDate: dates[0] ?? null,
-    endDate: dates[dates.length - 1] ?? null,
-  };
 }
 
 function getWeekdayMask(entry: NormalizedCalendar): number {

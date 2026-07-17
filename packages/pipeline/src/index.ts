@@ -5,6 +5,7 @@ export * from './dataset.js';
 export * from './downloader.js';
 export * from './footpaths.js';
 export * from './gtfs-parser.js';
+export * from './multi-agency.js';
 export * from './patterns.js';
 export * from './validation.js';
 

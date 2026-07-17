@@ -5,6 +5,8 @@ import {
   type PrefixedId,
 } from '@isochrone/gtfs-types';
 
+import { getSharedServicePeriod } from './multi-agency.js';
+
 export interface BrowserDatasetValidationInput {
   readonly manifest: BrowserDatasetManifest;
   readonly stops: BrowserStopsDataset;
@@ -72,6 +74,7 @@ export function validateBrowserDataset(
   const stats = getValidationStats(input, patternCount, serviceIds.size);
 
   validateAgencyIds(input, issues);
+  validateSources(input.manifest, issues);
   validateStops(input.stops, stopIds, issues);
   validateFootpaths(input.stops, stopIds, issues);
   validateRoutes(input.timetable, issues);
@@ -95,6 +98,46 @@ export function validateBrowserDataset(
     stats,
     issues,
   };
+}
+
+function validateSources(
+  manifest: BrowserDatasetManifest,
+  issues: BrowserDatasetValidationIssue[],
+): void {
+  const sources = manifest.sources;
+  if (sources === undefined) {
+    return;
+  }
+  if (sources.length === 0) {
+    addIssue(issues, 'invalid-sources', 'manifest.sources', 'Sources must not be empty.');
+    return;
+  }
+
+  const agencyIds = new Set<string>();
+  sources.forEach((source, index) => {
+    if (agencyIds.has(source.agencyId)) {
+      addIssue(
+        issues,
+        'duplicate-source',
+        `manifest.sources[${String(index)}].agencyId`,
+        `Duplicate source agency id: ${source.agencyId}`,
+      );
+    }
+    agencyIds.add(source.agencyId);
+  });
+
+  const sharedPeriod = getSharedServicePeriod(sources);
+  if (
+    manifest.servicePeriod.startDate !== sharedPeriod.startDate ||
+    manifest.servicePeriod.endDate !== sharedPeriod.endDate
+  ) {
+    addIssue(
+      issues,
+      'source-period-mismatch',
+      'manifest.servicePeriod',
+      'Manifest service period must equal the period shared by all sources.',
+    );
+  }
 }
 
 function validateAgencyIds(
