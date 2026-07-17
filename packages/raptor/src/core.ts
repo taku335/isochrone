@@ -63,6 +63,7 @@ export type RouteResult = EarliestArrivalResult | LatestDepartureResult;
 interface BoardedTrip {
   readonly tripIndex: number;
   readonly minuteOffset: ServiceMinuteOffset;
+  readonly serviceDate: string;
 }
 
 export function route(
@@ -343,7 +344,7 @@ function scanPattern(
     }
 
     if (boarded !== null) {
-      const reachedAt = readTripTime(data, boarded.tripIndex, position, false) - boarded.minuteOffset;
+      const reachedAt = getGlobalTripTime(data, boarded, position, false);
       if (reachedAt >= 0 && reachedAt < (arrival[stopIndex] ?? UNREACHED)) {
         arrival[stopIndex] = reachedAt;
         nextMarked[stopIndex] = 1;
@@ -451,6 +452,29 @@ function findEarliestBoardableTrip(
       return;
     }
 
+    if (hasRealtimeUpdates(data, tripStart, tripEnd, layer.date)) {
+      for (let tripIndex = tripStart; tripIndex < tripEnd; tripIndex += 1) {
+        const serviceIndex = data.trips.serviceIndices[tripIndex] ?? -1;
+        const departure = readTripTime(data, tripIndex, stopPosition, true, layer.date);
+        if ((active[serviceIndex] ?? 0) === 0 || departure < localReadyAt) {
+          continue;
+        }
+        const candidate: BoardedTrip = {
+          tripIndex,
+          minuteOffset: layer.minuteOffset,
+          serviceDate: layer.date,
+        };
+        if (
+          best === null ||
+          getGlobalDeparture(data, candidate, stopPosition) <
+            getGlobalDeparture(data, best, stopPosition)
+        ) {
+          best = candidate;
+        }
+      }
+      return;
+    }
+
     let tripIndex = lowerBoundTrip(
       data,
       tripStart,
@@ -461,7 +485,11 @@ function findEarliestBoardableTrip(
     while (tripIndex < tripEnd) {
       const serviceIndex = data.trips.serviceIndices[tripIndex] ?? -1;
       if ((active[serviceIndex] ?? 0) !== 0) {
-        const candidate: BoardedTrip = { tripIndex, minuteOffset: layer.minuteOffset };
+        const candidate: BoardedTrip = {
+          tripIndex,
+          minuteOffset: layer.minuteOffset,
+          serviceDate: layer.date,
+        };
         if (
           best === null ||
           getGlobalDeparture(data, candidate, stopPosition) <
@@ -501,6 +529,29 @@ function findLatestAlightableTrip(
       return;
     }
 
+    if (hasRealtimeUpdates(data, tripStart, tripEnd, layer.date)) {
+      for (let tripIndex = tripStart; tripIndex < tripEnd; tripIndex += 1) {
+        const serviceIndex = data.trips.serviceIndices[tripIndex] ?? -1;
+        const arrival = readTripTime(data, tripIndex, stopPosition, false, layer.date);
+        if ((active[serviceIndex] ?? 0) === 0 || arrival > localArriveBy) {
+          continue;
+        }
+        const candidate: BoardedTrip = {
+          tripIndex,
+          minuteOffset: layer.minuteOffset,
+          serviceDate: layer.date,
+        };
+        if (
+          best === null ||
+          getGlobalTripTime(data, candidate, stopPosition, false) >
+            getGlobalTripTime(data, best, stopPosition, false)
+        ) {
+          best = candidate;
+        }
+      }
+      return;
+    }
+
     let tripIndex = upperBoundTripArrival(
       data,
       tripStart,
@@ -511,7 +562,11 @@ function findLatestAlightableTrip(
     while (tripIndex >= tripStart) {
       const serviceIndex = data.trips.serviceIndices[tripIndex] ?? -1;
       if ((active[serviceIndex] ?? 0) !== 0) {
-        const candidate: BoardedTrip = { tripIndex, minuteOffset: layer.minuteOffset };
+        const candidate: BoardedTrip = {
+          tripIndex,
+          minuteOffset: layer.minuteOffset,
+          serviceDate: layer.date,
+        };
         if (
           best === null ||
           getGlobalTripTime(data, candidate, stopPosition, false) >
@@ -575,7 +630,7 @@ function getGlobalDeparture(
   trip: BoardedTrip,
   stopPosition: number,
 ): number {
-  return readTripTime(data, trip.tripIndex, stopPosition, true) - trip.minuteOffset;
+  return readTripTime(data, trip.tripIndex, stopPosition, true, trip.serviceDate) - trip.minuteOffset;
 }
 
 function getGlobalTripTime(
@@ -584,7 +639,7 @@ function getGlobalTripTime(
   stopPosition: number,
   departure: boolean,
 ): number {
-  return readTripTime(data, trip.tripIndex, stopPosition, departure) - trip.minuteOffset;
+  return readTripTime(data, trip.tripIndex, stopPosition, departure, trip.serviceDate) - trip.minuteOffset;
 }
 
 function readTripTime(
@@ -592,6 +647,7 @@ function readTripTime(
   tripIndex: number,
   stopPosition: number,
   departure: boolean,
+  serviceDate?: string,
 ): number {
   const timeStart = data.trips.timeOffsets[tripIndex];
   const timeEnd = data.trips.timeOffsets[tripIndex + 1];
@@ -602,7 +658,31 @@ function readTripTime(
   if (timeIndex >= timeEnd) {
     throw new Error(`Trip ${String(tripIndex)} has no time at stop position ${String(stopPosition)}.`);
   }
-  return data.trips.times[timeIndex] ?? UNREACHED;
+  const scheduled = data.trips.times[timeIndex] ?? UNREACHED;
+  if (serviceDate === undefined) {
+    return scheduled;
+  }
+  const tripDelay = data.realtime?.tripEventDelays[tripIndex]?.find(
+    (delay) => delay.serviceDate === serviceDate,
+  );
+  const eventIndex = stopPosition * 2 + (departure ? 1 : 0);
+  return scheduled + (tripDelay?.eventDelays[eventIndex] ?? 0);
+}
+
+function hasRealtimeUpdates(
+  data: LoadedTimetable,
+  tripStart: number,
+  tripEnd: number,
+  serviceDate: string,
+): boolean {
+  for (let tripIndex = tripStart; tripIndex < tripEnd; tripIndex += 1) {
+    if (data.realtime?.tripEventDelays[tripIndex]?.some(
+      (delay) => delay.serviceDate === serviceDate,
+    ) === true) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function queueMarkedPatterns(
