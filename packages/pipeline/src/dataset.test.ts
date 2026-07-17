@@ -20,6 +20,14 @@ describe('buildBrowserDatasetFiles', () => {
     expect(first.manifest.files.timetable.path).toMatch(/^timetable-[0-9a-f]{16}\.json$/);
     expect(second.manifest.files).toEqual(first.manifest.files);
     expect(first.manifest.servicePeriod).toEqual({ startDate: '20260701', endDate: '20260731' });
+    expect(first.manifest.sources).toEqual([
+      {
+        agencyId: 'nagoya-cbus',
+        displayName: 'nagoya-cbus',
+        feedVersion: '2026-07-01T00:00:00Z',
+        servicePeriod: { startDate: '20260701', endDate: '20260731' },
+      },
+    ]);
     expect(first.stops.stops.ids).toEqual(['nagoya-cbus:S1', 'nagoya-cbus:S2']);
     expect(first.timetable.calendar.weekdayMasks).toEqual([31]);
     expect(first.totalGzipBytes).toBeLessThan(1_500_000);

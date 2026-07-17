@@ -9,6 +9,13 @@ export function formatDatasetSummary(manifest: BrowserDatasetManifest): string {
   const period = startDate === null || endDate === null
     ? '有効期間不明'
     : `${formatGtfsDate(startDate)}〜${formatGtfsDate(endDate)}`;
+  const sources = manifest.sources ?? [];
+  if (sources.length > 1) {
+    const versions = sources
+      .map(({ displayName, feedVersion }) => `${displayName} ${feedVersion}`)
+      .join(' / ');
+    return `feed_versions ${versions} / 共通有効期間 ${period}`;
+  }
   return `feed_version ${manifest.feedVersion} / ${period}`;
 }
 

@@ -7,6 +7,7 @@ import { buildBrowserDatasetFiles, writeBrowserDataset } from './dataset.js';
 import { checkGtfsUpdate, downloadGtfsZip, readDownloadManifest } from './downloader.js';
 import { buildFootpaths, DEFAULT_FOOTPATH_CONFIG, getFootpathStats } from './footpaths.js';
 import { getGtfsStats, parseGtfsZipFile } from './gtfs-parser.js';
+import { createBrowserDatasetSource } from './multi-agency.js';
 import { buildCompactTimetable, getCompactTimetableStats } from './patterns.js';
 import { validateBrowserDataset } from './validation.js';
 
@@ -115,6 +116,12 @@ export async function runPipelineCli(
       const result = await writeBrowserDataset(gtfs, {
         outDir,
         feedVersion: manifest.lastModified,
+        sources: [createBrowserDatasetSource({
+          gtfs,
+          displayName: agency.displayName,
+          feedVersion: manifest.lastModified,
+          ...(agency.attribution === undefined ? {} : { attribution: agency.attribution }),
+        })],
         footpathConfig: agency.footpaths ?? DEFAULT_FOOTPATH_CONFIG,
         ...(options.sizeLimitBytes === undefined ? {} : { sizeLimitBytes: options.sizeLimitBytes }),
       });
@@ -140,6 +147,12 @@ export async function runPipelineCli(
       const gtfs = await parseGtfsZipFile(manifest.zipPath, toParseOptions(agency));
       const files = buildBrowserDatasetFiles(gtfs, {
         feedVersion: manifest.lastModified,
+        sources: [createBrowserDatasetSource({
+          gtfs,
+          displayName: agency.displayName,
+          feedVersion: manifest.lastModified,
+          ...(agency.attribution === undefined ? {} : { attribution: agency.attribution }),
+        })],
         footpathConfig: agency.footpaths ?? DEFAULT_FOOTPATH_CONFIG,
       });
       const result = validateBrowserDataset(files);

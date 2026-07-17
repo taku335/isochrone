@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
+import { type BrowserDatasetAttribution } from '@isochrone/gtfs-types';
+
 export interface ResourceSelectorConfig {
   readonly format?: string;
   readonly nameIncludes?: readonly string[];
@@ -15,6 +17,7 @@ export interface AgencyConfig {
   readonly packageId: string;
   readonly resourceSelector: ResourceSelectorConfig;
   readonly idPrefix: string;
+  readonly attribution?: BrowserDatasetAttribution;
   readonly footpaths?: FootpathConfig;
 }
 
@@ -78,6 +81,9 @@ function parseAgencyConfig(value: unknown): AgencyConfig {
   const packageId = readString(value, 'packageId');
   const idPrefix = readString(value, 'idPrefix');
   const resourceSelector = parseResourceSelector(value.resourceSelector);
+  const attribution = value.attribution === undefined
+    ? undefined
+    : parseAttribution(value.attribution);
   const footpaths = value.footpaths === undefined ? undefined : parseFootpathConfig(value.footpaths);
 
   return {
@@ -87,7 +93,19 @@ function parseAgencyConfig(value: unknown): AgencyConfig {
     packageId,
     resourceSelector,
     idPrefix,
+    ...(attribution === undefined ? {} : { attribution }),
     ...(footpaths === undefined ? {} : { footpaths }),
+  };
+}
+
+function parseAttribution(value: unknown): BrowserDatasetAttribution {
+  if (!isRecord(value)) {
+    throw new Error('Invalid agency attribution config.');
+  }
+  return {
+    datasetUrl: readString(value, 'datasetUrl'),
+    licenseName: readString(value, 'licenseName'),
+    licenseUrl: readString(value, 'licenseUrl'),
   };
 }
 

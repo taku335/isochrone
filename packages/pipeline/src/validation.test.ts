@@ -67,6 +67,18 @@ describe('validateBrowserDataset', () => {
     expect(result.ok).toBe(false);
     expect(result.issues).toContainEqual(expect.objectContaining({ code: 'decreasing-trip-time' }));
   });
+
+  it('fails when source metadata disagrees with the shared service period', () => {
+    const files = buildBrowserDatasetFiles(fixture, { feedVersion: '2026-07-01T00:00:00Z' });
+    const manifest = {
+      ...files.manifest,
+      servicePeriod: { startDate: '20260101', endDate: '20261231' },
+    };
+    const result = validateBrowserDataset({ ...files, manifest }, { ranges: fixtureRanges });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: 'source-period-mismatch' }));
+  });
 });
 
 const fixture: NormalizedGtfs = {
