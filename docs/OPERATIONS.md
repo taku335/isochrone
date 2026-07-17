@@ -48,6 +48,28 @@ pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus
 `validate` must report `"ok": true`, no issues, and zero warnings. `dataset` must keep the gzip total
 at or below 1,500,000 bytes.
 
+## Multi-agency staging
+
+Download each configured source separately, then pass every source to `validate` and `dataset` with
+an explicit composite dataset id:
+
+```sh
+pnpm --filter @isochrone/pipeline cli download nagoya-cbus
+pnpm --filter @isochrone/pipeline cli download nagoya-subway
+pnpm --filter @isochrone/pipeline cli validate nagoya-cbus nagoya-subway \
+  --dataset-id nagoya-transit
+pnpm --filter @isochrone/pipeline cli dataset nagoya-cbus nagoya-subway \
+  --dataset-id nagoya-transit \
+  --out-dir .cache/web-data/nagoya-transit
+```
+
+The source order does not affect the composite feed version or entity order. Every selected agency
+must have the same effective footpath configuration because walking transfers are regenerated once
+from the merged stop set. Keep production deployment on the single approved City Bus source until
+an additional official feed has stable download and redistribution terms. Before enabling it,
+approve a snapshot for every source, set a measured composite size gate, and update the City
+Bus-only UI note.
+
 ## Timetable revision review
 
 Treat the snapshot PR as a data change, even if only dates changed.
