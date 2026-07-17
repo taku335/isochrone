@@ -12,6 +12,7 @@ export function formatRaptorDatasetLabel(dataset: DatasetIdentity): string {
 
 export * from './core.js';
 export * from './reachability.js';
+export * from './realtime.js';
 export * from './service-days.js';
 export * from './worker-client.js';
 export * from './worker-protocol.js';
@@ -19,6 +20,7 @@ export * from './worker-server.js';
 
 export interface LoadedTimetable {
   readonly manifest: BrowserDatasetManifest;
+  readonly realtime?: LoadedRealtimeOverlay;
   readonly stopIds: readonly PrefixedId[];
   readonly stopNames: readonly string[];
   readonly stopNameKanas: readonly (string | null)[];
@@ -32,6 +34,15 @@ export interface LoadedTimetable {
   readonly stopPatternIndex: LoadedStopPatternIndex;
   readonly calendar: LoadedCalendar;
   readonly loadStats: LoadedTimetableStats;
+}
+
+export interface LoadedRealtimeOverlay {
+  readonly tripEventDelays: readonly (readonly LoadedRealtimeTripDelay[] | null)[];
+}
+
+export interface LoadedRealtimeTripDelay {
+  readonly serviceDate: string;
+  readonly eventDelays: Int32Array;
 }
 
 export interface LoadedRoutes {
